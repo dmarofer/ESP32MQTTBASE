@@ -16,7 +16,6 @@ Autor: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org
 
 #include <SerialCommands.h>			// Libreria para la gestion de comandos por el puerto serie https://github.com/ppedro74/Arduino-SerialCommands
 #include <AsyncMqttClient.h>		// Vamos a probar esta que es Asincrona: https://github.com/marvinroger/async-mqtt-client
-#include <AccelStepper.h>				// Para controlar el stepper como se merece: https://www.airspayce.com/mikem/arduino/AccelStepper/classAccelStepper.html
 #include <FS.h>									// Libreria Sistema de Ficheros
 #include <WiFi.h>								// Para las comunicaciones WIFI del ESP32
 #include <DNSServer.h>					// La necesita WifiManager para el portal captivo
@@ -26,7 +25,6 @@ Autor: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org
 #include <string>								// Para el manejo de cadenas
 #include <Bounce2.h>						// Libreria para filtrar rebotes de los Switches: https://github.com/thomasfredericks/Bounce2
 #include <SPIFFS.h>							// Libreria para sistema de ficheros SPIFFS
-
 
 #pragma endregion
 
