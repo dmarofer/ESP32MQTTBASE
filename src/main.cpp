@@ -2,9 +2,10 @@
 #pragma region COMENTARIOS
 
 /*
-ESP32MQTTBASE
 
+ESP32MQTTBASE
 Proyecto para usar de base en tus proyectos con ESP32 
+
 Incluye gestion de la configuracion Wifi y MQTT por puerto serie y HTTP (WifiManager) Incluye gestion de tareas con FreeRTOS
 
 Autor: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org
@@ -28,7 +29,6 @@ Autor: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org
 #include <SPIFFS.h>							// Libreria para sistema de ficheros SPIFFS
 
 #pragma endregion
-
 
 #pragma region Variables y estructuras
 
@@ -61,7 +61,7 @@ bool shouldSaveConfig = false;
 
 #pragma region Objetos
 
-// Wifimanager 
+// Wifimanager (aqui para que se vea tambien en el Loop)
 WiFiManager wifiManager;
 
 // Para la conexion MQTT
@@ -70,6 +70,7 @@ AsyncMqttClient  ClienteMQTT;
 
 // Los manejadores para las tareas
 TaskHandle_t THandleTaskMQTTRun,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskConexionMQTT;	
+	
 
 #pragma endregion
 
@@ -87,7 +88,7 @@ void saveConfigCallback() {
 // Funcion para leer la configuracion desde el fichero de configuracion
 void LeeConfig() {
 
-	// El true es para formatear el sistema de ficheros si falla el montaje. Si veo que hace cosas raras mejorar (no hacerlo siempre)
+	// El true es para formatear el sistema de ficheros si falla el montage. Si veo que hace cosas raras mejorar (no hacerlo siempre)
 	if (SPIFFS.begin(true)) {
 		Serial.println("Sistema de ficheros montado");
 		if (SPIFFS.exists("/config.json")) {
@@ -116,7 +117,7 @@ void LeeConfig() {
 
 				}
 				else {
-					Serial.println("No se puede cargar la configuracion desde el fichero");
+					Serial.println("No se puede carcar la configuracion desde el fichero");
 				}
 			}
 		}
@@ -199,9 +200,9 @@ void ManejadorComandos(String comando, String parametros) {
 
 #pragma region Funciones de gestion de las conexiones Wifi
 
-// Callback de Wifimanager cuando se arranca el portal de configuracion
+// Funcion lanzada cuando entra en modo AP
 void APCallback(WiFiManager *wifiManager) {
-	Serial.println("Error de conexion Wifi. Lanzando Portal de configuracion");
+	Serial.println("Lanzado APCallback");
 	Serial.println(WiFi.softAPIP());
 	Serial.println(wifiManager->getConfigPortalSSID());
 }
@@ -211,12 +212,19 @@ void WiFiEventCallBack(WiFiEvent_t event) {
     
 		//Serial.printf("[WiFi-event] event: %d\n", event);
     switch(event) {
+
+		case SYSTEM_EVENT_STA_START:
+				Serial.print("Conexion WiFi: Iniciando ...");
+				break;
     case SYSTEM_EVENT_STA_GOT_IP:
         Serial.print("Conexion WiFi: Conetado. IP: ");
         Serial.println(WiFi.localIP());
+        //FALTA: Conectar al MQTT pero NO se puede desde aqui (el Task de la Wifi me manda a tomar por culo por meterme en su terreno)
         break;
     case SYSTEM_EVENT_STA_DISCONNECTED:
         Serial.println("Conexion WiFi: Desconetado");
+        //xTimerStop(mqttReconnectTimer, 0); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+				//xTimerStart(wifiReconnectTimer, 0);
         break;
 
 		default:
@@ -225,7 +233,6 @@ void WiFiEventCallBack(WiFiEvent_t event) {
     }
 		
 }
-
 
 #pragma endregion
 
@@ -275,7 +282,7 @@ void onMqttConnect(bool sessionPresent) {
 	else{
 
 		// Si todo ha ido bien, proceso de inicio terminado.
-		Serial.println("Controlador Azimut Iniciado Correctamente: ComOK");
+		Serial.println("Comunicaciones OK");
 
 	}
 
@@ -307,7 +314,9 @@ void onMqttUnsubscribe(uint16_t packetId) {
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   
   String s_topic = String(topic);
-	
+
+	// CASCA SI NO VIENE PAYLOAD. MEJORAR
+
 	// Lo que viene en el char* payload viene de un buffer que trae KAKA, hay que limpiarlo (para eso nos pasan len y tal)
 	char c_payload[len+1]; 										// Array para el payload y un hueco mas para el NULL del final
   strlcpy(c_payload, payload, len+1); 			// Copiar del payload el tamaño justo. strcopy pone al final un NULL
@@ -361,6 +370,8 @@ void MandaTelemetria() {
 #pragma endregion
 
 #pragma region Funciones de implementacion de los comandos disponibles por el puerto serie
+
+
 
 // Manejadores de los comandos. Aqui dentro lo que queramos hacer con cada comando.
 void cmd_WIFI_hl(SerialCommands* sender)
@@ -499,6 +510,8 @@ SerialCommands serial_commands_(&Serial, serial_command_buffer_, sizeof(serial_c
 
 #pragma endregion
 
+#pragma endregion
+
 #pragma region TASKS
 
 // Tarea para vigilar la conexion con el MQTT y conectar si no estamos conectados
@@ -522,7 +535,8 @@ void TaskConexionMQTT( void * parameter ){
 
 }
 
-// Tarea para "atender" a los mensajes MQTT. Hay que ver tambien cuan rapido podemos ejecutarla
+// Tarea para "atender" a los mensajes MQTT. Hay que ver tambien cuan rapido podemos ejecutarla. Con la nueva libreria MQTT que uso no hace falta
+// Si finalmente no me vale para nada quitar esta tarea.
 void TaskMQTTRun( void * parameter ){
 
 	TickType_t xLastWakeTime;
@@ -574,9 +588,7 @@ void TaskMandaTelemetria( void * parameter ){
 	
 }
 
-
 #pragma endregion
-
 
 
 #pragma region Funcion Setup() de ARDUINO
@@ -614,17 +626,30 @@ void setup() {
 
 #pragma region Configuracion e inicializacion de la WIFI
 
-	// Configurar el WiFiManager
+	// WifiManager es el portal web para configurar la red desde una pagina web en el movil
+	// Esta definido pero no esta usado, para usarlo a gusto con un boton o con el metodo que se quiera
+	// Se puede arrancar en cualquier momento con wifiManager.autoConnect();
 
-	// Definir la salida de Debug por el serial del WifiManager
-	wifiManager.setDebugOutput(false);
-
-	// Añadir al wifimanager parametros para el MQTT
+	// Añadir al wifimanager parametros para configurar tambien el MQTT
 	WiFiManagerParameter custom_mqtt_server("server", "mqtt server", MiConfigMqtt.mqtt_server, 40);
 	WiFiManagerParameter custom_mqtt_port("port", "mqtt port", MiConfigMqtt.mqtt_port, 5);
 	WiFiManagerParameter custom_mqtt_topic("topic", "mqtt topic", MiConfigMqtt.mqtt_topic, 34);
 	WiFiManagerParameter custom_mqtt_usuario("usuario", "mqtt user", MiConfigMqtt.mqtt_usuario, 20);
 	WiFiManagerParameter custom_mqtt_password("password", "mqtt password", MiConfigMqtt.mqtt_password, 20);
+
+	// Configurar el WiFiManager
+
+	// Borrar la configuracion SSID y Password guardadas en EEPROM si queremos limpiar los datos
+	//wifiManager.resetSettings();
+	
+	// Modo Debug del Wifimanager
+	wifiManager.setDebugOutput(false);
+
+	// Definirle la funcion para aviso de que hay que salvar la configuracion
+	wifiManager.setSaveConfigCallback(saveConfigCallback);
+
+	// Definirle la funcion que se dispara cuando entra en modo AP
+	wifiManager.setAPCallback(APCallback);
 
 	// Añadir mis parametros custom
 	wifiManager.addParameter(&custom_mqtt_server);
@@ -633,47 +658,36 @@ void setup() {
 	wifiManager.addParameter(&custom_mqtt_usuario);
 	wifiManager.addParameter(&custom_mqtt_password);
 
-		// Definir Calidad de Señal Minima para mantenerse conectado.
+	// Definir Calidad de Señal Minima para mantenerse conectado.
 	// Por defecto sin parametros 8%
 	wifiManager.setMinimumSignalQuality();
 
-
+	// Definir la salida de Debug por el serial del WifiManager
+	wifiManager.setDebugOutput(false);
 	
 	// Timeout para que si no configuramos el portal AP se cierre
 	wifiManager.setTimeout(300);
 
-	// Borrar la configuracion SSID y Password guardadas en EEPROM (Teoricamente esto hay que hacer despues de hace autoconect no se si esta bien aqui esto)
-	wifiManager.resetSettings();
-
-	// Debug por consola del WifiManager
-	wifiManager.setDebugOutput(false);
-
-	// Definirle la funcion para aviso de que hay que salvar la configuracion
-	wifiManager.setSaveConfigCallback(saveConfigCallback);
-
-	// Definirle la funcion que se dispara cuando WifiManager entra en modo AP
-	wifiManager.setAPCallback(APCallback);
-
-	// Fincion Callback de eventos del objeto WiFi
+	// Callback de eventos del objeto WiFi
 	WiFi.onEvent(WiFiEventCallBack);
+
 	
-	// Arranque de la Wifi
-	Serial.println("Conectando a la WIFI ...");
-	// Metodo Simetrico. Esperar al autoconect, que si no conecta lanza el portal de configuracion.
-	wifiManager.autoConnect("RIEGAMATICO","");
+	// No arranco el WifiManager porque prefiero que siga el programa. Se puede arrancar con un boton o en algun momento que se desee depende del proyecto
+	// Asi que arranco la wifi directamente con el objeto WiFi que este metodo no para el programa
+	// WiFi.config(_ip, _gw, _sn, _dns, _dns);
+	// Y asi pilla por DHCP
+	WiFi.begin();
+    
 	
 	// Leer los parametros custom que tiene el wifimanager por si los he actualizado yo en modo AP
 	strcpy(MiConfigMqtt.mqtt_server, custom_mqtt_server.getValue());
 	strcpy(MiConfigMqtt.mqtt_port, custom_mqtt_port.getValue());
 	strcpy(MiConfigMqtt.mqtt_topic, custom_mqtt_topic.getValue());
-	strcpy(MiConfigMqtt.mqtt_usuario, custom_mqtt_usuario.getValue());
-	strcpy(MiConfigMqtt.mqtt_password, custom_mqtt_password.getValue());
 
 	// Salvar la configuracion en el fichero de configuracion
 	if (shouldSaveConfig) {
 
 		SalvaConfig();
-
 	}
 
 #pragma endregion
@@ -685,11 +699,6 @@ void setup() {
 	MiConfigMqtt.statTopic = "stat/" + String(MiConfigMqtt.mqtt_topic);
 	MiConfigMqtt.teleTopic = "tele/" + String(MiConfigMqtt.mqtt_topic);
 	MiConfigMqtt.lwtTopic = MiConfigMqtt.teleTopic + "/LWT";
-
-	Serial.println(MiConfigMqtt.cmndTopic);
-	Serial.println(MiConfigMqtt.statTopic);
-	Serial.println(MiConfigMqtt.teleTopic);
-	Serial.println(MiConfigMqtt.lwtTopic);
 	
 	ClienteMQTT.onConnect(onMqttConnect);
   ClienteMQTT.onDisconnect(onMqttDisconnect);
@@ -701,11 +710,9 @@ void setup() {
 	ClienteMQTT.setCleanSession(true);
 	ClienteMQTT.setClientId("ControlAzimut");
 	ClienteMQTT.setCredentials(MiConfigMqtt.mqtt_usuario,MiConfigMqtt.mqtt_password);
-	ClienteMQTT.setKeepAlive(2);
+	ClienteMQTT.setKeepAlive(4);
 	ClienteMQTT.setWill(MiConfigMqtt.lwtTopic.c_str(),2,true,"Offline");
 	
-	
-		
 	// Parar un par de segundos antes de lanzar las tareas.
 	delay(2000);
 
@@ -714,7 +721,7 @@ void setup() {
 	
 #pragma region TASKS 
 
-	// Lanzar las tareas infinitas a los cores a traves de las funciones del FreeRTOS (de funciones Task y Timer)
+	// Lanzar las tareas infinitas a los cores a traves de las funciones del FreeRTOS
 	
 	// xTaskCreate(TareaCore0,"CORE0",1000,NULL,1,&HandleTareaCore0)
 	// xTaskCreatePinnedToCore(TareaCore0,"CORE0",1000,NULL,1,&HandleTareaCore0,0)
@@ -729,8 +736,6 @@ void setup() {
 	
 	// Tareas CORE1. Si no es necesario tareas, utilizar el loop() que corre en el CORE1 como una unica tarea
 
-
-	// Fin del arranque del sistema
 	Serial.println("Sistema Iniciado");
 
 #pragma endregion
