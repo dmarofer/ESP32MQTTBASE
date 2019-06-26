@@ -1,6 +1,6 @@
-#ESP32MQTTBASE 1.1
+# ESP32MQTTBASE 1.1
 
-#Programa base para utilizar de base en tus proyectos MQTT con ESP32
+# Programa base para utilizar de base en tus proyectos MQTT con ESP32
 
 Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
 
