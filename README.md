@@ -1,6 +1,6 @@
-# ESP32MQTTBASE 1.1
+# RIEGAMATICO MQTT 1.0
 
-# Programa base para utilizar de base en tus proyectos MQTT con ESP32
+# Control de riego con ESP32 y capacidades MQTT
 
 Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
 
