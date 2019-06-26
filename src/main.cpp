@@ -2,21 +2,21 @@
 
 /*
 
-ESP32MQTTBASE 1.1
-Programa para utilizar de base en tus proyectos MQTT con ESP32
+RIEGAMATICO MQTT 1.0
+Control de riego con ESP32 y capacidades MQTT
 Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 Implementa el envio de comandos via puerto serie o MQTT
 Implementa el uso de tareas para multiproceso y para usar ambos cores
 Implementa un timer con soporte para FPU (unidad de coma flotante) para utilizar en tareas que requieran mayor velocidad que una Task
-Incluye la clase MiProyecto para desarrollar nuestro proyecto.
+
+
+Caracteristicas del control de riego:
+
 
 Author: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org - dmarofer@diegomaroto.net
-
-https://github.com/bilbaomakers/ESP32MQTTBASE
-
+https://github.com/dmarofer/RIEGAMATICO_MQTT
 https://bilbaomakers.org/
-
 Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 
 */
@@ -46,13 +46,19 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 static const uint64_t TIMER_TICK_US = 200;
 
 // Para el nombre del fichero de configuracion de comunicaciones
-static const String FICHERO_CONFIG_COM = "/MiProyectoCom.json";
+static const String FICHERO_CONFIG_COM = "/RiegaMaticoCom.json";
 
 // Para el nombre del fichero de configuracion del proyecto
-static const String FICHERO_CONFIG_PRJ = "/MiProyectoCfg.json";
+static const String FICHERO_CONFIG_PRJ = "/RiegaMaticoCfg.json";
 
 // Para la zona horaria (horas de diferencia con UTC)
 static const int HORA_LOCAL = 2;
+
+// Cosas del Riegamatico
+
+
+
+
 
 #pragma endregion
 
@@ -62,7 +68,7 @@ static const int HORA_LOCAL = 2;
 AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskMiProyectoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaComandos,ColaRespuestas;
@@ -247,16 +253,16 @@ class ConfigClass{
 
 #pragma endregion
 
-#pragma region CLASE MiProyecto - Clase principial para Mi Proyecto
+#pragma region CLASE RiegaMatico - Clase principial para Mi Proyecto
 
 // Una clase tiene 2 partes:
 // La primera es la definicion de todas las propiedades y metodos, publicos o privados.
 // La segunda es la IMPLEMENTACION de esos metodos o propiedades (que hacen). En C++ mas que nada de los METODOS (que son basicamente funciones)
 
 // Definicion
-class MiProyecto {
+class RiegaMatico {
 
-#pragma region DEFINICIONES MiProyecto
+#pragma region DEFINICIONES RiegaMatico
 private:
 
 	// Variables Internas para uso de la clase
@@ -275,8 +281,8 @@ private:
 
 public:
 
-	MiProyecto(String fich_config_miproyecto);						// Constructor (es la funcion que devuelve un Objeto de esta clase)
-	~MiProyecto() {};												// Destructor (Destruye el objeto, o sea, lo borra de la memoria)
+	RiegaMatico(String fich_config_RiegaMatico);						// Constructor (es la funcion que devuelve un Objeto de esta clase)
+	~RiegaMatico() {};												// Destructor (Destruye el objeto, o sea, lo borra de la memoria)
 
 	//  Variables Publicas
 	String HardwareInfo;											// Identificador del HardWare y Software
@@ -294,29 +300,29 @@ public:
 #pragma endregion
 
 
-#pragma region IMPLEMENTACIONES MiProyecto
+#pragma region IMPLEMENTACIONES RiegaMatico
 
 // Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
-MiProyecto::MiProyecto(String fich_config_miproyecto) {	
+RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {	
 
-	HardwareInfo = "MiProyecto.ESP32.1.0";
+	HardwareInfo = "RiegaMatico.ESP32.1.0";
 	ComOK = false;
 	HayQueSalvar = false;
-	mificheroconfig = fich_config_miproyecto;
+	mificheroconfig = fich_config_RiegaMatico;
 
 }
 
 #pragma region Funciones Publicas
 
 // Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
-void MiProyecto::SetRespondeComandoCallback(RespondeComandoCallback ref) {
+void RiegaMatico::SetRespondeComandoCallback(RespondeComandoCallback ref) {
 
 	MiRespondeComandos = (RespondeComandoCallback)ref;
 
 }
 
 // Metodo que devuelve un JSON con el estado
-String MiProyecto::MiEstadoJson(int categoria) {
+String RiegaMatico::MiEstadoJson(int categoria) {
 
 	DynamicJsonBuffer jBuffer;
 	JsonObject& jObj = jBuffer.createObject();
@@ -362,7 +368,7 @@ String MiProyecto::MiEstadoJson(int categoria) {
 	
 }
 
-boolean MiProyecto::SalvaConfig(){
+boolean RiegaMatico::SalvaConfig(){
 	
 
 	File mificheroconfig_handler = SPIFFS.open(mificheroconfig, "w");
@@ -386,7 +392,7 @@ boolean MiProyecto::SalvaConfig(){
 
 }
 
-boolean MiProyecto::LeeConfig(){
+boolean RiegaMatico::LeeConfig(){
 
 	// Sacar del fichero de configuracion, si existe, las configuraciones permanentes
 	if (SPIFFS.exists(mificheroconfig)) {
@@ -424,7 +430,7 @@ boolean MiProyecto::LeeConfig(){
 // Metodos (funciones). TODAS Salvo la RUN() deben ser ASINCRONAS. Jamas se pueden quedar uno esperando. Esperar a lo bobo ESTA PROHIBIDISISISISMO, tenemos MUCHAS cosas que hacer ....
 
 // Esta funcion se lanza desde una Task y hace las "cosas periodicas de la clase". No debe atrancarse nunca tampoco por supuesto (ni esta ni ninguna)
-void MiProyecto::Run() {
+void RiegaMatico::Run() {
 	
 	
 	if (HayQueSalvar){
@@ -442,9 +448,9 @@ void MiProyecto::Run() {
 #pragma endregion
 
 
-// Objeto de la clase MiProyecto.
+// Objeto de la clase RiegaMatico.
 
-MiProyecto MiProyectoOBJ(FICHERO_CONFIG_PRJ);
+RiegaMatico RiegaMaticoOBJ(FICHERO_CONFIG_PRJ);
 
 #pragma endregion
 
@@ -532,7 +538,7 @@ void onMqttConnect(bool sessionPresent) {
 	else{
 
 		// Si todo ha ido bien, proceso de inicio terminado.
-		MiProyectoOBJ.ComOK = true;
+		RiegaMaticoOBJ.ComOK = true;
 		Serial.print("** ");
 		Serial.print(ClienteNTP.getFormattedTime());
 		Serial.println(" - SISTEMA INICIADO CORRECTAMENTE **");
@@ -600,7 +606,7 @@ void onMqttPublish(uint16_t packetId) {
 
 }
 
-// Manda a la cola de respuestas el mensaje de respuesta. Esta funcion la uso como CALLBACK para el objeto MiProyecto
+// Manda a la cola de respuestas el mensaje de respuesta. Esta funcion la uso como CALLBACK para el objeto RiegaMatico
 void MandaRespuesta(String comando, String payload) {
 
 			String t_topic = MiConfig.statTopic + "/" + comando;
@@ -636,7 +642,7 @@ void MandaTelemetria() {
 			ObjJson.set("TIPO","MQTT");
 			ObjJson.set("CMND","TELE");
 			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",MiProyectoOBJ.MiEstadoJson(1));
+			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(1));
 			
 			char JSONmessageBuffer[300];
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
@@ -947,7 +953,7 @@ void TaskComandosSerieRun( void * parameter ){
 }
 
 // Tarea para el metodo run del objeto de la cupula.
-void TaskMiProyectoRun( void * parameter ){
+void TaskRiegaMaticoRun( void * parameter ){
 
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 100;
@@ -955,7 +961,7 @@ void TaskMiProyectoRun( void * parameter ){
 	
 	while(true){
 
-		MiProyectoOBJ.Run();
+		RiegaMaticoOBJ.Run();
 
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
@@ -1043,10 +1049,10 @@ void setup() {
 	Serial.begin(115200);
 	Serial.println();
 
-	Serial.println("-- Iniciando Controlador MiProyecto --");
+	Serial.println("-- Iniciando Controlador RiegaMatico --");
 
 	// Asignar funciones Callback
-	MiProyectoOBJ.SetRespondeComandoCallback(MandaRespuesta);
+	RiegaMaticoOBJ.SetRespondeComandoCallback(MandaRespuesta);
 		
 	// Comunicaciones
 	ClienteMQTT = AsyncMqttClient();
@@ -1084,8 +1090,8 @@ void setup() {
 	
 		}
 
-		// Leer configuracion salvada del Objeto MiProyectoOBJ
-		MiProyectoOBJ.LeeConfig();
+		// Leer configuracion salvada del Objeto RiegaMaticoOBJ
+		RiegaMaticoOBJ.LeeConfig();
 
 	}
 
@@ -1106,7 +1112,7 @@ void setup() {
 	
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
-	xTaskCreatePinnedToCore(TaskMiProyectoRun,"MiProyectoRun",2000,NULL,1,&THandleTaskMiProyectoRun,0);
+	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,0);
 	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
