@@ -16,7 +16,7 @@ Incluye la clase MiProyecto para desarrollar nuestro proyecto.
 
 Author: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org - dmarofer@diegomaroto.net
 
-https://github.com/bilbaomakers/ESP32MQTTBASE
+https://github.com/dmarofer/RIEGAMATICO_MQTT
 
 https://bilbaomakers.org/
 
