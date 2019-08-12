@@ -37,6 +37,7 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
+#include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
 
 #pragma endregion
 
@@ -55,10 +56,18 @@ static const String FICHERO_CONFIG_PRJ = "/RiegaMaticoCfg.json";
 static const int HORA_LOCAL = 2;
 
 // Cosas del Riegamatico
+// SALIDAS
+static const int PINBOMBA = 33;
+static const int PINCARGA = 32;
 
-
-
-
+// ENTRADAS
+static const int PINVBAT = 34;
+static const int PINVCARGA = 35;
+static const int PINFLUJO = 19;
+static const int PINTEMPTIERRA = 18;
+static const int PINNIVEL = 27;
+static const int PINAMBIENTE = 12;
+static const int PINHUMEDAD = 13;
 
 #pragma endregion
 
@@ -68,7 +77,7 @@ static const int HORA_LOCAL = 2;
 AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskOtaRun,THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaComandos,ColaRespuestas;
@@ -268,7 +277,11 @@ private:
 	// Variables Internas para uso de la clase
 
 	bool HayQueSalvar;
+	bool Regando;
 	String mificheroconfig;
+	
+	// Tiempo de riego (ms)
+	unsigned long t_ciclo_global = 20000;
 
 	// Funciones Callback. Son funciones "especiales" que yo puedo definir FUERA de la clase y disparar DENTRO.
 	// Por ejemplo "una funcion que envie las respuestas a los comandos". Aqui no tengo por que decir ni donde ni como va a enviar esas respuestas.
@@ -278,6 +291,12 @@ private:
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
 	RespondeComandoCallback MiRespondeComandos = nullptr;								// Definir el objeto que va a contener la funcion que vendra de fuera AQUI en la clase.
 	
+	unsigned long t_init_riego;
+
+	uint16_t t_vbateria;
+	uint16_t t_vcarga;
+	boolean t_nivel;
+
 
 public:
 
@@ -294,6 +313,7 @@ public:
 	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Definir la funcion para pasarnos la funcion de callback del enviamensajes
 	boolean LeeConfig();
 	boolean SalvaConfig();
+	void Regar();
 
 };
 
@@ -308,8 +328,26 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	HardwareInfo = "RiegaMatico.ESP32.1.0";
 	ComOK = false;
 	HayQueSalvar = false;
+	Regando = false;	
 	mificheroconfig = fich_config_RiegaMatico;
+		
+	// Habilitar un generador PWM
+	ledcSetup(0,5000,8);
+	// Y asignarlo a un pin
+	ledcAttachPin(PINBOMBA,0);
+	// Salida para el rele de carga
+	pinMode(PINCARGA,OUTPUT);
+	// Sensor de Nivel del deposito (reserva)
+	pinMode(PINNIVEL,INPUT_PULLDOWN);
 
+	// Lectores de tension
+	adcAttachPin(PINVBAT);
+	adcAttachPin(PINVCARGA);
+	
+	// Atenuacion en la entrada. Por defecto es 11db (1v = 3959). 0db --> 1v=1088
+	analogSetPinAttenuation(PINVBAT, ADC_0db);
+	analogSetPinAttenuation(PINVCARGA, ADC_0db);
+	
 }
 
 #pragma region Funciones Publicas
@@ -334,12 +372,14 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	case 1:
 
 		// Esto llena de objetos de tipo "pareja propiedad valor"
-		jObj.set("TIME", ClienteNTP.getFormattedTime());							// HORA
-		jObj.set("HI", HardwareInfo);												// Info del Hardware
-		jObj.set("CS", ComOK);														// Info de la conexion WIFI y MQTT
-		jObj.set("RSSI", WiFi.RSSI());												// RSSI de la señal Wifi
-		jObj.set("HALL", hallRead());												// Campo magnetico en el MicroProcesador
-		jObj.set("ITEMP", (int)(temprature_sens_read() - 32) / 1.8);				// Temperatura de la CPU convertida a Celsius.
+		jObj.set("TIME", ClienteNTP.getFormattedTime());	// HORA
+		jObj.set("HI", HardwareInfo);						// Info del Hardware
+		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
+		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
+		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
+		jObj.set("VCARG", t_vcarga);						// Tension del cargador
+		jObj.set("PWMBOMBA", ledcRead(0));					// Valor actual PWM de la bomba
+		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
 
 		break;
 
@@ -367,6 +407,13 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	return JSONmessageBuffer;
 	
 }
+
+void RiegaMatico::Regar(){
+
+	Regando = true;
+
+}
+
 
 boolean RiegaMatico::SalvaConfig(){
 	
@@ -440,6 +487,34 @@ void RiegaMatico::Run() {
 
 	}
 
+	// Para regar. Afinar mas es para probar el HW
+	if ( Regando == false ){
+
+		t_init_riego = millis();
+		ledcWrite(0,0);
+	
+
+	}
+
+	else {
+
+		ledcWrite(0,255);
+
+		if ( (millis() - t_init_riego) >= t_ciclo_global ){
+
+			Regando = false;
+
+		}
+	
+
+	}
+
+	// Lectura de Sensores
+	t_vbateria = analogRead(PINVBAT);
+	t_vcarga = analogRead(PINVCARGA);
+	t_nivel = digitalRead(PINNIVEL);
+
+
 }
 
 #pragma endregion
@@ -468,6 +543,8 @@ void WiFiEventCallBack(WiFiEvent_t event) {
     	case SYSTEM_EVENT_STA_GOT_IP:
      	   	Serial.print("Conexion WiFi: Conetado. IP: ");
       	  	Serial.println(WiFi.localIP());
+			ArduinoOTA.begin();
+			Serial.println("Proceso OTA arrancado.");
 			ClienteNTP.begin();
 			if (ClienteNTP.update()){
 
@@ -658,6 +735,7 @@ void MandaTelemetria() {
 
 #pragma region TASKS
 
+
 // Tarea para vigilar la conexion con el MQTT y conectar si no estamos conectados
 void TaskGestionRed ( void * parameter ) {
 
@@ -677,6 +755,30 @@ void TaskGestionRed ( void * parameter ) {
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
+
+}
+
+// Tarea para el Handler de ArduinoOTA
+void TaskOtaRun ( void * parameter ){
+
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 10;
+	xLastWakeTime = xTaskGetTickCount ();
+
+	Serial.println("Tarea OTA Lanzada");
+
+	while(true){
+
+		if (WiFi.isConnected()){
+			
+			
+			
+		}
+				
+		vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+	}
+
 
 }
 
@@ -778,6 +880,15 @@ void TaskProcesaComandos ( void * parameter ){
 						Serial.println("SaveCom - Salvar la configuracion en el microcontrolador");
 						
 					}
+
+					// Comandos del riegamatico
+
+					else if (COMANDO == "PWMBOMBA"){
+
+						RiegaMaticoOBJ.Regar();
+
+					}
+
 
 					// Y Ya si no es de ninguno de estos ....
 
@@ -1110,6 +1221,7 @@ void setup() {
 	
 	// Tareas CORE0
 	
+	
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
 	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,0);
@@ -1118,6 +1230,7 @@ void setup() {
 	
 	// Tareas CORE1
 
+	//xTaskCreatePinnedToCore(TaskOtaRun,"OTARun",1000,NULL,1,&THandleTaskOtaRun,1);
 
 	// Timer
 
@@ -1139,7 +1252,9 @@ void setup() {
 // Se ejecuta en el Core 1
 // Como todo se getiona por Task aqui no se pone NADA
 void loop() {
-		
+
+	// Esto aqui de momento porque no me rula en una task y tengo que averiguar por que.
+	ArduinoOTA.handle();	
 			
 }
 
