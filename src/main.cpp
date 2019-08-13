@@ -8,7 +8,6 @@ Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 Implementa el envio de comandos via puerto serie o MQTT
 Implementa el uso de tareas para multiproceso y para usar ambos cores
-Implementa un timer con soporte para FPU (unidad de coma flotante) para utilizar en tareas que requieran mayor velocidad que una Task
 
 
 Caracteristicas del control de riego:
@@ -272,64 +271,61 @@ class ConfigClass{
 // Definicion
 class RiegaMatico {
 
-#pragma region DEFINICIONES RiegaMatico
+
 private:
 
-	// Variables Internas para uso de la clase
+	// Variables Privadas
+	bool HayQueSalvar = false;					// Flag para saber si hay algo que salvar en la config.
+	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
+	bool b_activa = false;						// Flag para saber si estamos regando (bomba activa)
+	String mificheroconfig;						// Para almacenar el nombre del fichero de configuracion. Nos la pasa el constructor.
+	unsigned long t_ciclo_global = 20000;		// Tiempo de riego de cada parcial (ms).
+	unsigned long t_espera_parciales = 60000;	// Tiempo de espera entre parciales.
+	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
+	int t_n_parciales = 6;						// Numero total de parciales del riego
+	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
+	float t_vbateria;							// Tension en la bateria.
+	float t_vcargador;							// Tension en el cargador.
+	boolean t_nivel;							// Estado de la reserva de agua.
 
-	bool HayQueSalvar;
-	bool Regando;
-	String mificheroconfig;
-	
-	// Tiempo de riego (ms)
-	unsigned long t_ciclo_global = 20000;
 
-	// Funciones Callback. Son funciones "especiales" que yo puedo definir FUERA de la clase y disparar DENTRO.
-	// Por ejemplo "una funcion que envie las respuestas a los comandos". Aqui no tengo por que decir ni donde ni como va a enviar esas respuestas.
-	// Solo tengo que definirla y cuando cree el objeto de esta clase en mi programa, creo la funcion con esta misma estructura y se la "paso" a la clase
-	// que la usara como se usa cualquier otra funcion y ella sabra que hacer
-
+	// Funciones Privadas
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
 	RespondeComandoCallback MiRespondeComandos = nullptr;								// Definir el objeto que va a contener la funcion que vendra de fuera AQUI en la clase.
-	
-	unsigned long t_init_riego;
-
-	uint16_t t_vbateria;
-	uint16_t t_vcarga;
-	boolean t_nivel;
 
 
 public:
 
-	RiegaMatico(String fich_config_RiegaMatico);						// Constructor (es la funcion que devuelve un Objeto de esta clase)
+	// Constructor
+	RiegaMatico(String fich_config_RiegaMatico);					// Constructor (es la funcion que devuelve un Objeto de esta clase)
 	~RiegaMatico() {};												// Destructor (Destruye el objeto, o sea, lo borra de la memoria)
+
 
 	//  Variables Publicas
 	String HardwareInfo;											// Identificador del HardWare y Software
 	bool ComOK;														// Si la wifi y la conexion MQTT esta OK
 	
+
 	// Funciones Publicas
 	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
-	void Run();														// Actualiza las propiedades de estado de este objeto en funcion del estado de motores y sensores
-	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Definir la funcion para pasarnos la funcion de callback del enviamensajes
-	boolean LeeConfig();
-	boolean SalvaConfig();
-	void Regar();
+	void Run();														// Metodo RUN de la clase ejecutado por la Task correspondiente
+	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Funciona de callback de respondecomandos
+	boolean LeeConfig();											// Leer la configuracion del fichero de config
+	boolean SalvaConfig();											// Salvar la configuracion del fichero de config
+	void Regar();													// Metodo para iniciar un ciclo de riego
+	void ConfigTiempoRiego(unsigned long tiempo_riego_ms);			// Metodo para configurar el tiempo de riego
+	void ConfigEsperaParciales(unsigned long tiempo_espera_ms);		// Metodo para configurar el tiempo de espera de los parciales
+	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
+	
 
 };
 
-#pragma endregion
-
-
-#pragma region IMPLEMENTACIONES RiegaMatico
 
 // Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
 RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {	
 
 	HardwareInfo = "RiegaMatico.ESP32.1.0";
 	ComOK = false;
-	HayQueSalvar = false;
-	Regando = false;	
 	mificheroconfig = fich_config_RiegaMatico;
 		
 	// Habilitar un generador PWM
@@ -361,8 +357,6 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	digitalWrite(PINLED, LOW);
 }
 
-#pragma region Funciones Publicas
-
 // Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
 void RiegaMatico::SetRespondeComandoCallback(RespondeComandoCallback ref) {
 
@@ -388,7 +382,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
 		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
 		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
-		jObj.set("VCARG", t_vcarga);						// Tension del cargador
+		jObj.set("VCARG", t_vcargador);						// Tension del cargador
 		jObj.set("PWMBOMBA", ledcRead(0));					// Valor actual PWM de la bomba
 		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
 
@@ -396,8 +390,10 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 	case 2:
 
-		jObj.set("INFO2", "INFO2");							
-		
+		jObj.set("TCICLO", t_ciclo_global);							
+		jObj.set("TPAUSA", t_espera_parciales);
+		jObj.set("NCICLOS", t_n_parciales);
+
 		break;
 
 	default:
@@ -421,14 +417,10 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 void RiegaMatico::Regar(){
 
-	t_init_riego = millis();
-	ledcWrite(0,255);
-	//digitalWrite(PINBOMBA, HIGH);
-	digitalWrite(PINLED, HIGH);
-	Regando=true;
+	ARegar = true;
+	t_n_parciales_count = t_n_parciales;
 	
 }
-
 
 boolean RiegaMatico::SalvaConfig(){
 	
@@ -489,12 +481,9 @@ boolean RiegaMatico::LeeConfig(){
 
 }
 
-// Metodos (funciones). TODAS Salvo la RUN() deben ser ASINCRONAS. Jamas se pueden quedar uno esperando. Esperar a lo bobo ESTA PROHIBIDISISISISMO, tenemos MUCHAS cosas que hacer ....
-
-// Esta funcion se lanza desde una Task y hace las "cosas periodicas de la clase". No debe atrancarse nunca tampoco por supuesto (ni esta ni ninguna)
 void RiegaMatico::Run() {
 	
-	
+	// Si hay que salvar, salvar (facil no?)
 	if (HayQueSalvar){
 
 		SalvaConfig();
@@ -503,26 +492,87 @@ void RiegaMatico::Run() {
 	}
 
 
-	if ( (millis() - t_init_riego) >= t_ciclo_global && Regando == true ){
+	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
+	if ( ARegar == true && b_activa == false){
+
+		// en este caso pueden ocurrir varias cosas:
+
+		// Que sea el primer riego nada mas lanzar el comando. Ni esperamos ni nada a regar
+		if (t_n_parciales_count == t_n_parciales){
+
+			t_init_riego = millis(); // Actualizo la marca de tiempo
+			b_activa=true;
+			t_n_parciales_count--;
+
+			digitalWrite(PINLED, HIGH);
+			ledcWrite(0,255);
+
+		}
+
+		// Si estoy en algun parcial que no sea el ultimo y se ha superado el tiempo de parcial
+		else if (t_n_parciales_count < t_n_parciales && t_n_parciales_count > 0 && (millis() - t_init_riego) >= t_espera_parciales){
+
+			t_init_riego = millis(); // Actualizo la marca de tiempo
+			b_activa=true;
+			t_n_parciales_count--;
+
+			digitalWrite(PINLED, HIGH);
+			ledcWrite(0,255);
+
+		}
+
+		// Si estoy en el ultimo parcial ....
+		else if (t_n_parciales_count <= 0){
+
+			ARegar = false;
+
+		}
+
+				
+	}
+	
+
+	// Si la bomba esta activa no pensamos mucho. Si el tiempo de riego acaba parar la bomba
+	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global){
 
 		ledcWrite(0,0);
-		//digitalWrite(PINBOMBA, HIGH);
 		digitalWrite(PINLED, LOW);
-		Regando=false;
+		b_activa=false;
+
+		t_init_riego = millis(); // Empieza la pausa y voy a usar esto tambien para contar
 
 	}
+
 	
 	
 	// Lectura de Sensores
-	t_vbateria = analogRead(PINVBAT);
-	t_vcarga = analogRead(PINVCARGA);
 	t_nivel = digitalRead(PINNIVEL);
+	t_vbateria =  (analogRead(PINVBAT) * (float)12.53 ) / 3550;
+	t_vcargador = (analogRead(PINVCARGA) * (float)19.30) / 3550;
 
 
 }
 
-#pragma endregion
+void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego_ms){
 
+	t_ciclo_global = tiempo_riego_ms;
+	HayQueSalvar = true;
+
+}	
+
+void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera_ms){
+
+	t_espera_parciales = tiempo_espera_ms;
+	HayQueSalvar = true;
+
+}	
+
+void RiegaMatico::ConfigNumParciales(int n_parciales){
+
+	t_n_parciales = n_parciales;
+	HayQueSalvar = true;
+
+}
 
 #pragma endregion
 
@@ -716,6 +766,7 @@ void MandaTelemetria() {
 	
 	if (ClienteMQTT.connected()){
 
+			// Telemetria 1
 			String t_topic = MiConfig.teleTopic + "/INFO1";
 
 			DynamicJsonBuffer jsonBuffer;
@@ -728,6 +779,18 @@ void MandaTelemetria() {
 			char JSONmessageBuffer[300];
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
+			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
+			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
+
+			// Telemetria 2 rehusando los objetos anterioires
+			t_topic = MiConfig.teleTopic + "/INFO2";
+
+			ObjJson.set("MQTTT",t_topic);
+			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(1));
+			
+			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
+			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
 
@@ -890,6 +953,24 @@ void TaskProcesaComandos ( void * parameter ){
 					else if (COMANDO == "PWMBOMBA"){
 
 						RiegaMaticoOBJ.Regar();
+
+					}
+
+					else if (COMANDO == "TRIEGO"){
+
+						RiegaMaticoOBJ.ConfigTiempoRiego(PAYLOAD.toDouble());
+
+					}
+
+					else if (COMANDO == "TPAUSA"){
+
+						RiegaMaticoOBJ.ConfigEsperaParciales(PAYLOAD.toDouble());
+
+					}
+
+					else if (COMANDO == "NPARCIALES"){
+
+						RiegaMaticoOBJ.ConfigNumParciales(PAYLOAD.toInt());
 
 					}
 
@@ -1102,57 +1183,6 @@ void TaskMandaTelemetria( void * parameter ){
 	
 }
 
-// Funcion de manejo del Timer con soporte para unidad de coma flotante
-
-uint32_t cp0_regs[18];
-
-void IRAM_ATTR timer_isr() {
-
-	// Para que esta funcion no sea interrupida
-	portENTER_CRITICAL(&timerMux);
-
-	 // get FPU state
-  	uint32_t cp_state = xthal_get_cpenable();
-  
-  	if(cp_state) {
-    	
-		// Salvar los registros actuales de la FPU si hay
-    	xthal_save_cp0(cp0_regs);
-
-  	} 
-	
-	else {
-    	
-		// Habilitar la FPU
-    	xthal_set_cpenable(1);
-
-  	}
-	
-  
-	// Aqui podemos hacer la cosa que queramos que haga el timer.
-	
-	
-
- 	if(cp_state) {
-    	
-		// restaurar los registros de la FPU
-    	xthal_restore_cp0(cp0_regs);
-
-  	} 
-	
-	else {
-    
-		// Apagar la FPU
-    	xthal_set_cpenable(0);
-
-  	}
-
-	// Deshabilitar el modo no interrupcion
-	portEXIT_CRITICAL(&timerMux);
-
-}
-
-
 #pragma endregion
 
 #pragma region Funcion Setup() de ARDUINO
@@ -1236,13 +1266,6 @@ void setup() {
 
 	//xTaskCreatePinnedToCore(TaskOtaRun,"OTARun",1000,NULL,1,&THandleTaskOtaRun,1);
 
-	// Timer
-
-	timer_stp = timerBegin(0, 80, true);
-  	timerAttachInterrupt(timer_stp, &timer_isr, true);
-  	timerAlarmWrite(timer_stp, TIMER_TICK_US, true);
-  	timerAlarmEnable(timer_stp);
-	
 	// Init Completado.
 	Serial.println("Setup Completado.");
 	
