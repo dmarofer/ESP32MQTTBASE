@@ -68,6 +68,7 @@ static const int PINTEMPTIERRA = 18;
 static const int PINNIVEL = 27;
 static const int PINAMBIENTE = 12;
 static const int PINHUMEDAD = 13;
+static const int PINLED = 5;
 
 #pragma endregion
 
@@ -332,11 +333,18 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	mificheroconfig = fich_config_RiegaMatico;
 		
 	// Habilitar un generador PWM
-	ledcSetup(0,5000,8);
+	ledcSetup(0,2000,8);
 	// Y asignarlo a un pin
 	ledcAttachPin(PINBOMBA,0);
+	// Y poner a cero
+	ledcWrite(0,0);
+	
+	//pinMode (PINBOMBA,OUTPUT);
+	//digitalWrite(PINBOMBA,LOW);
+
 	// Salida para el rele de carga
 	pinMode(PINCARGA,OUTPUT);
+	digitalWrite(PINCARGA,HIGH);
 	// Sensor de Nivel del deposito (reserva)
 	pinMode(PINNIVEL,INPUT_PULLDOWN);
 
@@ -348,6 +356,9 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	analogSetPinAttenuation(PINVBAT, ADC_0db);
 	analogSetPinAttenuation(PINVCARGA, ADC_0db);
 	
+	// LED
+	pinMode(PINLED, OUTPUT);
+	digitalWrite(PINLED, LOW);
 }
 
 #pragma region Funciones Publicas
@@ -410,8 +421,12 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 void RiegaMatico::Regar(){
 
-	Regando = true;
-
+	t_init_riego = millis();
+	ledcWrite(0,255);
+	//digitalWrite(PINBOMBA, HIGH);
+	digitalWrite(PINLED, HIGH);
+	Regando=true;
+	
 }
 
 
@@ -487,28 +502,17 @@ void RiegaMatico::Run() {
 
 	}
 
-	// Para regar. Afinar mas es para probar el HW
-	if ( Regando == false ){
 
-		t_init_riego = millis();
+	if ( (millis() - t_init_riego) >= t_ciclo_global && Regando == true ){
+
 		ledcWrite(0,0);
-	
+		//digitalWrite(PINBOMBA, HIGH);
+		digitalWrite(PINLED, LOW);
+		Regando=false;
 
 	}
-
-	else {
-
-		ledcWrite(0,255);
-
-		if ( (millis() - t_init_riego) >= t_ciclo_global ){
-
-			Regando = false;
-
-		}
 	
-
-	}
-
+	
 	// Lectura de Sensores
 	t_vbateria = analogRead(PINVBAT);
 	t_vcarga = analogRead(PINVCARGA);
