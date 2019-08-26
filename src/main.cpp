@@ -60,14 +60,17 @@ static const int PINBOMBA = 33;
 static const int PINCARGA = 32;
 
 // ENTRADAS
-static const int PINVBAT = 34;
-static const int PINVCARGA = 35;
+static const int PINVBAT = 35;
+static const int PINVCARGA = 34;
 static const int PINFLUJO = 19;
 static const int PINTEMPTIERRA = 18;
 static const int PINNIVEL = 27;
 static const int PINAMBIENTE = 12;
 static const int PINHUMEDAD = 13;
 static const int PINLED = 5;
+
+static const float VCARGASTART = 12.50;
+static const float VCARGASTOP = 13.50;
 
 #pragma endregion
 
@@ -284,10 +287,12 @@ private:
 	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
 	int t_n_parciales = 6;						// Numero total de parciales del riego
 	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
+	uint16_t t_vbatlectura;						// Lectura del ADC de la bateria
+	uint16_t t_vcarglectura;					// Lectura del ADC del cargador
 	float t_vbateria;							// Tension en la bateria.
 	float t_vcargador;							// Tension en el cargador.
 	boolean t_nivel;							// Estado de la reserva de agua.
-
+	boolean cargando = false;
 
 	// Funciones Privadas
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
@@ -340,17 +345,21 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 
 	// Salida para el rele de carga
 	pinMode(PINCARGA,OUTPUT);
-	digitalWrite(PINCARGA,HIGH);
+	digitalWrite(PINCARGA,LOW);
 	// Sensor de Nivel del deposito (reserva)
 	pinMode(PINNIVEL,INPUT_PULLDOWN);
 
 	// Lectores de tension
-	adcAttachPin(PINVBAT);
-	adcAttachPin(PINVCARGA);
+	pinMode(PINVBAT, INPUT);
+	pinMode(PINVCARGA, INPUT);
+	//adcAttachPin(PINVBAT);
+	//adcAttachPin(PINVCARGA);
 	
+	//analogSetSamples(2);
+
 	// Atenuacion en la entrada. Por defecto es 11db (1v = 3959). 0db --> 1v=1088
-	analogSetPinAttenuation(PINVBAT, ADC_0db);
-	analogSetPinAttenuation(PINVCARGA, ADC_0db);
+	//analogSetPinAttenuation(PINVBAT, ADC_0db);
+	//analogSetPinAttenuation(PINVCARGA, ADC_0db);
 	
 	// LED
 	pinMode(PINLED, OUTPUT);
@@ -381,10 +390,13 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("HI", HardwareInfo);						// Info del Hardware
 		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
 		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
+		jObj.set("ADCBAT", t_vbatlectura);					// Lectura del ADC Bateria
+		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
 		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
 		jObj.set("VCARG", t_vcargador);						// Tension del cargador
 		jObj.set("PWMBOMBA", ledcRead(0));					// Valor actual PWM de la bomba
 		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
+		jObj.set("CARG", cargando);							// Estado de la carga
 
 		break;
 
@@ -491,6 +503,8 @@ void RiegaMatico::Run() {
 
 	}
 
+	
+
 
 	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
 	if ( ARegar == true && b_activa == false){
@@ -505,7 +519,7 @@ void RiegaMatico::Run() {
 			t_n_parciales_count--;
 
 			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,255);
+			ledcWrite(0,240);
 
 		}
 
@@ -517,7 +531,7 @@ void RiegaMatico::Run() {
 			t_n_parciales_count--;
 
 			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,255);
+			ledcWrite(0,240);
 
 		}
 
@@ -543,13 +557,29 @@ void RiegaMatico::Run() {
 
 	}
 
-	
-	
 	// Lectura de Sensores
 	t_nivel = digitalRead(PINNIVEL);
-	t_vbateria =  (analogRead(PINVBAT) * (float)12.53 ) / 3550;
-	t_vcargador = (analogRead(PINVCARGA) * (float)19.30) / 3550;
+	t_vbatlectura = analogRead(PINVBAT);
+	t_vcarglectura = analogRead(PINVCARGA);
+	t_vbateria =  (t_vbatlectura * 13.04f ) / 3510.0f;
+	t_vcargador = (t_vcarglectura * 14.56f) / 3480.0f;
 
+	
+	// CARGA
+	if (t_vbateria <= VCARGASTART && !cargando){
+
+		digitalWrite(PINCARGA,HIGH);
+		cargando = true;
+
+	}
+
+	
+	if (t_vbateria >= VCARGASTOP){
+
+		digitalWrite(PINCARGA,LOW);
+		cargando = false;
+
+	}
 
 }
 
@@ -786,7 +816,7 @@ void MandaTelemetria() {
 			t_topic = MiConfig.teleTopic + "/INFO2";
 
 			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(1));
+			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(2));
 			
 			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
@@ -1148,11 +1178,11 @@ void TaskComandosSerieRun( void * parameter ){
 	
 }
 
-// Tarea para el metodo run del objeto de la cupula.
+// Tarea para el metodo run del objeto Riegamatico
 void TaskRiegaMaticoRun( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
+	const TickType_t xFrequency = 1000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 	while(true){
@@ -1165,11 +1195,12 @@ void TaskRiegaMaticoRun( void * parameter ){
 
 }
 
+
 // tarea para el envio periodico de la telemetria
 void TaskMandaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 1000;
+	const TickType_t xFrequency = 4000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 
@@ -1254,16 +1285,14 @@ void setup() {
 	Serial.println("Creando tareas del sistema.");
 	
 	// Tareas CORE0
-	
-	
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
-	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,0);
 	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
 	// Tareas CORE1
-
+	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,1);
+	
 	//xTaskCreatePinnedToCore(TaskOtaRun,"OTARun",1000,NULL,1,&THandleTaskOtaRun,1);
 
 	// Init Completado.
