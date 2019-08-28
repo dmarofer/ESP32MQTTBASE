@@ -37,6 +37,7 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
+#include "driver/adc.h"
 
 #pragma endregion
 
@@ -70,7 +71,7 @@ static const int PINHUMEDAD = 13;
 static const int PINLED = 5;
 
 static const float VCARGASTART = 12.50;
-static const float VCARGASTOP = 13.50;
+static const float VCARGASTOP = 13.60;
 
 #pragma endregion
 
@@ -350,16 +351,19 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	pinMode(PINNIVEL,INPUT_PULLDOWN);
 
 	// Lectores de tension
-	pinMode(PINVBAT, INPUT);
-	pinMode(PINVCARGA, INPUT);
-	//adcAttachPin(PINVBAT);
-	//adcAttachPin(PINVCARGA);
-	
-	//analogSetSamples(2);
+	//pinMode(PINVBAT, INPUT);
+	//pinMode(PINVCARGA, INPUT);
 
-	// Atenuacion en la entrada. Por defecto es 11db (1v = 3959). 0db --> 1v=1088
-	//analogSetPinAttenuation(PINVBAT, ADC_0db);
-	//analogSetPinAttenuation(PINVCARGA, ADC_0db);
+	adc1_config_width(ADC_WIDTH_BIT_12);
+
+	// Atenuacion 11dB es maxima y permite leer 11dB attenuation (ADC_ATTEN_DB_11) between 150 to 2450mV
+	// ADC1 channel 7 is GPIO35 - BATERIA
+	// ADC1 channel 6 is GPIO34 - CARGADOR
+	//adc1_config_channel_atten(ADC1_CHANNEL_6,ADC_ATTEN_11db);
+	adc1_config_channel_atten(ADC1_CHANNEL_7,ADC_ATTEN_11db);
+
+	//analogSetSamples(10);
+
 	
 	// LED
 	pinMode(PINLED, OUTPUT);
@@ -558,11 +562,19 @@ void RiegaMatico::Run() {
 	}
 
 	// Lectura de Sensores
+	
+	//t_vbatlectura = analogRead(PINVBAT);
+	//t_vcarglectura = analogRead(PINVCARGA);
+
+	t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
+	delay(10);
+	//t_vcarglectura = adc1_get_raw(ADC1_CHANNEL_6);
+	//delay(10);
+
+	t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
+	//t_vcargador = (t_vcarglectura * 14.56f) / 3480.0f;
+
 	t_nivel = digitalRead(PINNIVEL);
-	t_vbatlectura = analogRead(PINVBAT);
-	t_vcarglectura = analogRead(PINVCARGA);
-	t_vbateria =  (t_vbatlectura * 13.04f ) / 3510.0f;
-	t_vcargador = (t_vcarglectura * 14.56f) / 3480.0f;
 
 	
 	// CARGA
