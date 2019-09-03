@@ -426,9 +426,9 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("TCICLO", t_ciclo_global);					// Valor duracion de cada riego parcial (en segundos)					
 		jObj.set("TPAUSA", t_espera_parciales);				// Tiempo de espera entre los parciales (segundos)
 		jObj.set("NCICLOS", t_n_parciales);					// Numero de parciales
-		jObj.set("FLUJO",t_flujotick);						// Valor del medidor de flujo
+		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo
 		jObj.set("RIEGOERR", riegoerror);					// Estado de error del riego
-		jObj.set("ULTRIEGO","test");						// Fecha y hora del ultimo riego
+		jObj.set("ULTRIEGO",horaultimoriego);				// Fecha y hora del ultimo riego
 
 		break;
 
