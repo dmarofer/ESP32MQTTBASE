@@ -70,8 +70,12 @@ static const int PINAMBIENTE = 12;
 static const int PINHUMEDAD = 13;
 static const int PINLED = 5;
 
-static const float VCARGASTART = 12.50;
-static const float VCARGASTOP = 13.60;
+static const float VCARGASTART = 12.00;
+static const float VCARGASTOP = 14.00;
+
+// FLUJO
+static const int TICKSPORLITRO = 270;			// Segun lo que leo podria ser esto, ya lo calibraremos a ver ....
+
 
 #pragma endregion
 
@@ -283,8 +287,8 @@ private:
 	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
 	bool b_activa = false;						// Flag para saber si estamos regando (bomba activa)
 	String mificheroconfig;						// Para almacenar el nombre del fichero de configuracion. Nos la pasa el constructor.
-	unsigned long t_ciclo_global = 20000;		// Tiempo de riego de cada parcial (ms).
-	unsigned long t_espera_parciales = 60000;	// Tiempo de espera entre parciales.
+	unsigned long t_ciclo_global = 20;			// Tiempo de riego de cada parcial (seg).
+	unsigned long t_espera_parciales = 60;		// Tiempo de espera entre parciales (seg).
 	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
 	int t_n_parciales = 6;						// Numero total de parciales del riego
 	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
@@ -293,12 +297,17 @@ private:
 	float t_vbateria;							// Tension en la bateria.
 	float t_vcargador;							// Tension en el cargador.
 	boolean t_nivel;							// Estado de la reserva de agua.
-	boolean cargando = false;
-
+	boolean cargando = false;					// Flag para saber si esta cargando
+	int t_flujotick;							// Contador para el medidor de flujo
+	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
+	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
+	
 	// Funciones Privadas
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
 	RespondeComandoCallback MiRespondeComandos = nullptr;								// Definir el objeto que va a contener la funcion que vendra de fuera AQUI en la clase.
 
+	static void ISRFlujoTick();					// ISR estatica para pasarle al attachinterrupt
+	static RiegaMatico* sRiegaMatico;			// Una objeto para albergar puntero a la instancia del riegamatico y manipularla desde dentro desde la interrupcion
 
 public:
 
@@ -306,33 +315,43 @@ public:
 	RiegaMatico(String fich_config_RiegaMatico);					// Constructor (es la funcion que devuelve un Objeto de esta clase)
 	~RiegaMatico() {};												// Destructor (Destruye el objeto, o sea, lo borra de la memoria)
 
-
 	//  Variables Publicas
 	String HardwareInfo;											// Identificador del HardWare y Software
 	bool ComOK;														// Si la wifi y la conexion MQTT esta OK
 	
-
 	// Funciones Publicas
 	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
+	
 	void Run();														// Metodo RUN de la clase ejecutado por la Task correspondiente
+	
 	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Funciona de callback de respondecomandos
+	
 	boolean LeeConfig();											// Leer la configuracion del fichero de config
 	boolean SalvaConfig();											// Salvar la configuracion del fichero de config
+	
 	void Regar();													// Metodo para iniciar un ciclo de riego
-	void ConfigTiempoRiego(unsigned long tiempo_riego_ms);			// Metodo para configurar el tiempo de riego
-	void ConfigEsperaParciales(unsigned long tiempo_espera_ms);		// Metodo para configurar el tiempo de espera de los parciales
+	
+	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
+	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
 	
+	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
 
 };
 
+RiegaMatico* RiegaMatico::sRiegaMatico	 = 0;						// Instancia vacia de la clase (reserva de mem)
 
 // Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
 RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {	
 
+	// Apuntar la instancia creada a sRiegaMatico (de momento para lo de la interrupcion)
+	sRiegaMatico = this;
+	
 	HardwareInfo = "RiegaMatico.ESP32.1.0";
 	ComOK = false;
 	mificheroconfig = fich_config_RiegaMatico;
+
+	riegoerror = false;												// quitar cuando este implementado cargar desde el fichero de configuracion
 		
 	// Habilitar un generador PWM
 	ledcSetup(0,2000,8);
@@ -341,33 +360,31 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {
 	// Y poner a cero
 	ledcWrite(0,0);
 	
-	//pinMode (PINBOMBA,OUTPUT);
-	//digitalWrite(PINBOMBA,LOW);
-
 	// Salida para el rele de carga
 	pinMode(PINCARGA,OUTPUT);
 	digitalWrite(PINCARGA,LOW);
+	
 	// Sensor de Nivel del deposito (reserva)
 	pinMode(PINNIVEL,INPUT_PULLDOWN);
 
-	// Lectores de tension
-	//pinMode(PINVBAT, INPUT);
-	//pinMode(PINVCARGA, INPUT);
-
+	// Conversores ADC	
 	adc1_config_width(ADC_WIDTH_BIT_12);
-
 	// Atenuacion 11dB es maxima y permite leer 11dB attenuation (ADC_ATTEN_DB_11) between 150 to 2450mV
 	// ADC1 channel 7 is GPIO35 - BATERIA
 	// ADC1 channel 6 is GPIO34 - CARGADOR
 	//adc1_config_channel_atten(ADC1_CHANNEL_6,ADC_ATTEN_11db);
 	adc1_config_channel_atten(ADC1_CHANNEL_7,ADC_ATTEN_11db);
-
 	//analogSetSamples(10);
-
 	
 	// LED
 	pinMode(PINLED, OUTPUT);
 	digitalWrite(PINLED, LOW);
+
+	// Contador de flujo
+	t_flujotick = 0;
+	pinMode(PINFLUJO, INPUT_PULLUP);
+	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
+
 }
 
 // Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
@@ -406,9 +423,12 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 	case 2:
 
-		jObj.set("TCICLO", t_ciclo_global);							
-		jObj.set("TPAUSA", t_espera_parciales);
-		jObj.set("NCICLOS", t_n_parciales);
+		jObj.set("TCICLO", t_ciclo_global);					// Valor duracion de cada riego parcial (en segundos)					
+		jObj.set("TPAUSA", t_espera_parciales);				// Tiempo de espera entre los parciales (segundos)
+		jObj.set("NCICLOS", t_n_parciales);					// Numero de parciales
+		jObj.set("FLUJO",t_flujotick);						// Valor del medidor de flujo
+		jObj.set("RIEGOERR", riegoerror);					// Estado de error del riego
+		jObj.set("ULTRIEGO","test");						// Fecha y hora del ultimo riego
 
 		break;
 
@@ -434,6 +454,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 void RiegaMatico::Regar(){
 
 	ARegar = true;
+	t_flujotick = 0;
 	t_n_parciales_count = t_n_parciales;
 	
 }
@@ -497,6 +518,45 @@ boolean RiegaMatico::LeeConfig(){
 
 }
 
+
+
+void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
+
+	t_ciclo_global = tiempo_riego;
+	HayQueSalvar = true;
+
+}	
+
+void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera){
+
+	t_espera_parciales = tiempo_espera;
+	HayQueSalvar = true;
+
+}	
+
+void RiegaMatico::ConfigNumParciales(int n_parciales){
+
+	t_n_parciales = n_parciales;
+	HayQueSalvar = true;
+
+}
+
+void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
+
+	if (sRiegaMatico != 0){
+
+		sRiegaMatico->FujoTick();			// Y por tanto SI puedo llamar a una funcion publica no estatica (y por ende la llama la interrupcion y la puedo llamar por otro lado si gusto)
+
+	}
+
+}
+
+void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador de flujo
+
+	t_flujotick++;
+
+}
+
 void RiegaMatico::Run() {
 	
 	// Si hay que salvar, salvar (facil no?)
@@ -506,10 +566,7 @@ void RiegaMatico::Run() {
 		HayQueSalvar = false;
 
 	}
-
 	
-
-
 	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
 	if ( ARegar == true && b_activa == false){
 
@@ -521,6 +578,7 @@ void RiegaMatico::Run() {
 			t_init_riego = millis(); // Actualizo la marca de tiempo
 			b_activa=true;
 			t_n_parciales_count--;
+			horaultimoriego = ClienteNTP.getFormattedTime();
 
 			digitalWrite(PINLED, HIGH);
 			ledcWrite(0,240);
@@ -528,11 +586,11 @@ void RiegaMatico::Run() {
 		}
 
 		// Si estoy en algun parcial que no sea el ultimo y se ha superado el tiempo de parcial
-		else if (t_n_parciales_count < t_n_parciales && t_n_parciales_count > 0 && (millis() - t_init_riego) >= t_espera_parciales){
+		else if (t_n_parciales_count < t_n_parciales && t_n_parciales_count > 0 && (millis() - t_init_riego) >= t_espera_parciales*1000){
 
-			t_init_riego = millis(); // Actualizo la marca de tiempo
+			t_init_riego = millis(); 		// Actualizo la marca de tiempo
 			b_activa=true;
-			t_n_parciales_count--;
+			t_n_parciales_count--;	
 
 			digitalWrite(PINLED, HIGH);
 			ledcWrite(0,240);
@@ -542,16 +600,28 @@ void RiegaMatico::Run() {
 		// Si estoy en el ultimo parcial ....
 		else if (t_n_parciales_count <= 0){
 
+			// Parar el flag de "hay que regar"
 			ARegar = false;
+			
+			// Verificar si realmente hemos echado agua con el medidor de flujo
+			if (t_flujotick > 100){
+
+				riegoerror = false;
+
+			}
+
+			else{
+
+				riegoerror = true;
+
+			}
 
 		}
-
 				
 	}
 	
-
 	// Si la bomba esta activa no pensamos mucho. Si el tiempo de riego acaba parar la bomba
-	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global){
+	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global*1000){
 
 		ledcWrite(0,0);
 		digitalWrite(PINLED, LOW);
@@ -592,27 +662,6 @@ void RiegaMatico::Run() {
 		cargando = false;
 
 	}
-
-}
-
-void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego_ms){
-
-	t_ciclo_global = tiempo_riego_ms;
-	HayQueSalvar = true;
-
-}	
-
-void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera_ms){
-
-	t_espera_parciales = tiempo_espera_ms;
-	HayQueSalvar = true;
-
-}	
-
-void RiegaMatico::ConfigNumParciales(int n_parciales){
-
-	t_n_parciales = n_parciales;
-	HayQueSalvar = true;
 
 }
 
@@ -1212,7 +1261,7 @@ void TaskRiegaMaticoRun( void * parameter ){
 void TaskMandaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 4000;
+	const TickType_t xFrequency = 5000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 
@@ -1245,6 +1294,7 @@ void setup() {
 	// Comunicaciones
 	ClienteMQTT = AsyncMqttClient();
 	WiFi.onEvent(WiFiEventCallBack);
+	WiFi.setHostname("RIEGAMATICO");
 
 	// Iniciar la Wifi
 	WiFi.begin();
