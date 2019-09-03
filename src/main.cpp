@@ -283,6 +283,7 @@ class RiegaMatico {
 private:
 
 	// Variables Privadas
+	unsigned long t_uptime;						// Para el tiempo que llevamos en marcha
 	bool HayQueSalvar = false;					// Flag para saber si hay algo que salvar en la config.
 	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
 	bool b_activa = false;						// Flag para saber si estamos regando (bomba activa)
@@ -408,6 +409,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 		// Esto llena de objetos de tipo "pareja propiedad valor"
 		jObj.set("TIME", ClienteNTP.getFormattedTime());	// HORA
+		jObj.set("UPT", t_uptime);							// Uptime en segundos
 		jObj.set("HI", HardwareInfo);						// Info del Hardware
 		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
 		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
@@ -662,6 +664,10 @@ void RiegaMatico::Run() {
 		cargando = false;
 
 	}
+
+	// UpTime Minutos
+	t_uptime = esp_timer_get_time() / 1000000;
+
 
 }
 
