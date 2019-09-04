@@ -70,8 +70,8 @@ static const int PINAMBIENTE = 12;
 static const int PINHUMEDAD = 13;
 static const int PINLED = 5;
 
-static const float VCARGASTART = 12.00;
-static const float VCARGASTOP = 14.00;
+static const float VCARGASTART = 11.50;
+static const float VCARGASTOP = 14.20;
 
 // FLUJO
 static const int TICKSPORLITRO = 270;			// Segun lo que leo podria ser esto, ya lo calibraremos a ver ....
