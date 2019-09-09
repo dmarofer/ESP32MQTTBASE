@@ -405,6 +405,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	switch (categoria)
 	{
 
+	// INFO GENERAL
 	case 1:
 
 		// Esto llena de objetos de tipo "pareja propiedad valor"
@@ -417,23 +418,26 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
 		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
 		jObj.set("VCARG", t_vcargador);						// Tension del cargador
-		jObj.set("PWMBOMBA", ledcRead(0));					// Valor actual PWM de la bomba
 		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
 		jObj.set("CARG", cargando);							// Estado de la carga
 
 		break;
 
+	// INFO DE RIEGOS
 	case 2:
 
-		jObj.set("TCICLO", t_ciclo_global);					// Valor duracion de cada riego parcial (en segundos)					
-		jObj.set("TPAUSA", t_espera_parciales);				// Tiempo de espera entre los parciales (segundos)
-		jObj.set("NCICLOS", t_n_parciales);					// Numero de parciales
-		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo
-		jObj.set("RIEGOERR", riegoerror);					// Estado de error del riego
-		jObj.set("ULTRIEGO",horaultimoriego);				// Fecha y hora del ultimo riego
+		jObj.set("TCICLO", t_ciclo_global);						// Valor duracion de cada riego parcial (en segundos)					
+		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
+		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
+		jObj.set("PWMBOMBA", ledcRead(0));						// Valor actual PWM de la bomba
+		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
+		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
+		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
+		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
 
 		break;
 
+	// SI ME LLAMAN CON OTRO PARAMETRO
 	default:
 
 		jObj.set("NOINFO", "NOINFO");						// MAL LLAMADO
@@ -458,6 +462,7 @@ void RiegaMatico::Regar(){
 	ARegar = true;
 	t_flujotick = 0;
 	t_n_parciales_count = t_n_parciales;
+	this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 	
 }
 
@@ -526,6 +531,7 @@ void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
 
 	t_ciclo_global = tiempo_riego;
 	HayQueSalvar = true;
+	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
 
 }	
 
@@ -533,6 +539,7 @@ void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera){
 
 	t_espera_parciales = tiempo_espera;
 	HayQueSalvar = true;
+	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
 
 }	
 
@@ -540,6 +547,7 @@ void RiegaMatico::ConfigNumParciales(int n_parciales){
 
 	t_n_parciales = n_parciales;
 	HayQueSalvar = true;
+	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
 
 }
 
@@ -584,6 +592,7 @@ void RiegaMatico::Run() {
 
 			digitalWrite(PINLED, HIGH);
 			ledcWrite(0,240);
+			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
 
@@ -596,6 +605,7 @@ void RiegaMatico::Run() {
 
 			digitalWrite(PINLED, HIGH);
 			ledcWrite(0,240);
+			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
 
@@ -618,6 +628,8 @@ void RiegaMatico::Run() {
 
 			}
 
+			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+
 		}
 				
 	}
@@ -630,6 +642,8 @@ void RiegaMatico::Run() {
 		b_activa=false;
 
 		t_init_riego = millis(); // Empieza la pausa y voy a usar esto tambien para contar
+
+		this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 	}
 
@@ -879,6 +893,8 @@ void MandaTelemetria() {
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
 
+			/*
+			
 			// Telemetria 2 rehusando los objetos anterioires
 			t_topic = MiConfig.teleTopic + "/INFO2";
 
@@ -890,6 +906,8 @@ void MandaTelemetria() {
 
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
+
+			*/
 
 	}
 	
@@ -1047,7 +1065,7 @@ void TaskProcesaComandos ( void * parameter ){
 
 					// Comandos del riegamatico
 
-					else if (COMANDO == "PWMBOMBA"){
+					else if (COMANDO == "REGAR"){
 
 						RiegaMaticoOBJ.Regar();
 
