@@ -429,6 +429,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("TCICLO", t_ciclo_global);						// Valor duracion de cada riego parcial (en segundos)					
 		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
 		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
+		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
 		jObj.set("PWMBOMBA", ledcRead(0));						// Valor actual PWM de la bomba
 		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
@@ -462,8 +463,7 @@ void RiegaMatico::Regar(){
 	ARegar = true;
 	t_flujotick = 0;
 	t_n_parciales_count = t_n_parciales;
-	this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
-	
+		
 }
 
 boolean RiegaMatico::SalvaConfig(){
