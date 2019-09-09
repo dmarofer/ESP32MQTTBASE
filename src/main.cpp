@@ -331,6 +331,7 @@ public:
 	boolean SalvaConfig();											// Salvar la configuracion del fichero de config
 	
 	void Regar();													// Metodo para iniciar un ciclo de riego
+	void Cancelar();												// Metodo para cancelar el riego en curso
 	
 	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
 	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
@@ -464,6 +465,29 @@ void RiegaMatico::Regar(){
 	t_flujotick = 0;
 	t_n_parciales_count = t_n_parciales;
 		
+}
+
+void RiegaMatico::Cancelar(){
+
+	// Parar el flag de "hay que regar"
+	ARegar = false;
+			
+	// Verificar si realmente hemos echado agua con el medidor de flujo
+	if (t_flujotick > 100){
+
+		riegoerror = false;
+
+	}
+
+	else{
+
+		riegoerror = true;
+
+	}
+
+	this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+
+
 }
 
 boolean RiegaMatico::SalvaConfig(){
@@ -612,23 +636,7 @@ void RiegaMatico::Run() {
 		// Si estoy en el ultimo parcial ....
 		else if (t_n_parciales_count <= 0){
 
-			// Parar el flag de "hay que regar"
-			ARegar = false;
-			
-			// Verificar si realmente hemos echado agua con el medidor de flujo
-			if (t_flujotick > 100){
-
-				riegoerror = false;
-
-			}
-
-			else{
-
-				riegoerror = true;
-
-			}
-
-			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+			this->Cancelar();
 
 		}
 				
@@ -1068,6 +1076,12 @@ void TaskProcesaComandos ( void * parameter ){
 					else if (COMANDO == "REGAR"){
 
 						RiegaMaticoOBJ.Regar();
+
+					}
+
+					else if (COMANDO == "CANCELAR"){
+
+						RiegaMaticoOBJ.Cancelar();
 
 					}
 
