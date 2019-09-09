@@ -468,8 +468,10 @@ void RiegaMatico::Regar(){
 }
 
 void RiegaMatico::Cancelar(){
-
-	// Parar el flag de "hay que regar"
+	
+	ledcWrite(0,0);
+	digitalWrite(PINLED, LOW);
+	b_activa=false;
 	ARegar = false;
 			
 	// Verificar si realmente hemos echado agua con el medidor de flujo
