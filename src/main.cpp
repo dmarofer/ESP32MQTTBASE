@@ -473,6 +473,7 @@ void RiegaMatico::Cancelar(){
 	digitalWrite(PINLED, LOW);
 	b_activa=false;
 	ARegar = false;
+	t_n_parciales_count = 0;
 			
 	// Verificar si realmente hemos echado agua con el medidor de flujo
 	if (t_flujotick > 100){
