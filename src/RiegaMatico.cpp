@@ -27,11 +27,11 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	riegoerror = false;												// quitar cuando este implementado cargar desde el fichero de configuracion
     
 	// Habilitar un generador PWM
-	ledcSetup(0,2000,8);
+	ledcSetup(1,2000,8);
 	// Y asignarlo a un pin
-	ledcAttachPin(PINBOMBA,0);
+	ledcAttachPin(PINBOMBA,1);
 	// Y poner a cero
-	ledcWrite(0,0);
+	ledcWrite(1,0);
 	
 	// Salida para el rele de carga
 	pinMode(PINCARGA,OUTPUT);
@@ -85,7 +85,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("UPT", t_uptime);							// Uptime en segundos
 		jObj.set("HI", HardwareInfo);						// Info del Hardware
 		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
-		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
+		//jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
 		jObj.set("ADCBAT", t_vbatlectura);					// Lectura del ADC Bateria
 		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
 		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
@@ -103,7 +103,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
 		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
 		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
-		jObj.set("PWMBOMBA", ledcRead(0));						// Valor actual PWM de la bomba
+		jObj.set("PWMBOMBA", ledcRead(1));						// Valor actual PWM de la bomba
 		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
@@ -141,7 +141,7 @@ void RiegaMatico::Regar(){
 
 void RiegaMatico::Cancelar(){
 	
-	ledcWrite(0,0);
+	ledcWrite(1,0);
 
 	b_activa=false;
 	ARegar = false;
@@ -289,8 +289,8 @@ void RiegaMatico::Run() {
 			t_n_parciales_count--;
 			horaultimoriego = ClienteNTP.getFormattedTime();
 
-			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,240);
+			//digitalWrite(PINLED, HIGH);
+			ledcWrite(1,240);
 			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
@@ -302,8 +302,8 @@ void RiegaMatico::Run() {
 			b_activa=true;
 			t_n_parciales_count--;	
 
-			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,240);
+			//digitalWrite(PINLED, HIGH);
+			ledcWrite(1,240);
 			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
@@ -320,8 +320,8 @@ void RiegaMatico::Run() {
 	// Si la bomba esta activa no pensamos mucho. Si el tiempo de riego acaba parar la bomba
 	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global*1000){
 
-		ledcWrite(0,0);
-		digitalWrite(PINLED, LOW);
+		ledcWrite(1,0);
+		//digitalWrite(PINLED, LOW);
 		b_activa=false;
 
 		t_init_riego = millis(); // Empieza la pausa y voy a usar esto tambien para contar
@@ -366,18 +366,6 @@ void RiegaMatico::Run() {
 	t_uptime = esp_timer_get_time() / 1000000;
 
 
-    if (WiFi.status() == WL_CONNECTED){
-
-        LedEstado.Breathe(3000).Forever();
-
-    }
-
-    else {
-
-        LedEstado.Blink(200,1000).Forever();
-
-    }
-
     // Estados en el LED
 
     // Si estoiy en un ciclo de riego respiracion rapida
@@ -390,10 +378,12 @@ void RiegaMatico::Run() {
     // Y si no reflejar el estado de la Wifi (de momento)
     else{
 
+		
         switch (WiFi.status()){
 
         case WL_CONNECTED:
-            LedEstado.Breathe(5000).Forever();
+            //LedEstado.Breathe(5000).Forever();
+			LedEstado.Blink(200,4000).Forever();
             break;
 
         case WL_IDLE_STATUS:
@@ -405,13 +395,17 @@ void RiegaMatico::Run() {
             break;
 
         }
-
+		
 
     }
     
     
-    // Actualizar Led
-    LedEstado.Update();
 
+}
+
+void RiegaMatico::RunFast() {
+
+	// Actualizar Led
+    LedEstado.Update();
 
 }

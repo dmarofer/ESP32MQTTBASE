@@ -331,7 +331,7 @@ void MandaTelemetria() {
 void TaskGestionRed ( void * parameter ) {
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 4000;
+	const TickType_t xFrequency = 10000;
 	xLastWakeTime = xTaskGetTickCount ();
 
 
@@ -339,6 +339,7 @@ void TaskGestionRed ( void * parameter ) {
 
 		if (WiFi.isConnected() && !ClienteMQTT.connected()){
 			
+			Serial.println("Conectando al Broker MQTT");
 			ClienteMQTT.connect();
 			
 		}
@@ -658,7 +659,7 @@ void TaskComandosSerieRun( void * parameter ){
 void TaskRiegaMaticoRun( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
+	const TickType_t xFrequency = 1000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 	while(true){
@@ -784,7 +785,8 @@ void setup() {
 void loop() {
 
 	// Esto aqui de momento porque no me rula en una task y tengo que averiguar por que.
-	ArduinoOTA.handle();	
+	ArduinoOTA.handle();
+	MiRiegaMatico.RunFast();	
 			
 }
 

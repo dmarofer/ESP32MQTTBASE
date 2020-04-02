@@ -61,7 +61,8 @@ public:
 	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
 	
 	void Run();														// Metodo RUN de la clase ejecutado por la Task correspondiente
-	
+	void RunFast();
+
 	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Funciona de callback de respondecomandos
 	
 	boolean LeeConfig();											// Leer la configuracion del fichero de config
