@@ -32,12 +32,15 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #include <WebServer.h>					// La necesita WifiManager para el formulario de configuracion (ESP32)
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
 #include <string>						// Para el manejo de cadenas
-#include <Bounce2.h>					// Libreria para filtrar rebotes de los Switches: https://github.com/thomasfredericks/Bounce2
-#include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
+//#include <Bounce2.h>					// Libreria para filtrar rebotes de los Switches: https://github.com/thomasfredericks/Bounce2
+//#include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
-#include "driver/adc.h"
+//#include "driver/adc.h"
+#include <Configuracion.h>
+#include <ConfigCom.h>
+#include <RiegaMatico.h>
 
 #pragma endregion
 
@@ -55,26 +58,8 @@ static const String FICHERO_CONFIG_PRJ = "/RiegaMaticoCfg.json";
 // Para la zona horaria (horas de diferencia con UTC)
 static const int HORA_LOCAL = 2;
 
-// Cosas del Riegamatico
-// SALIDAS
-static const int PINBOMBA = 33;
-static const int PINCARGA = 32;
 
-// ENTRADAS
-static const int PINVBAT = 35;
-static const int PINVCARGA = 34;
-static const int PINFLUJO = 19;
-static const int PINTEMPTIERRA = 18;
-static const int PINNIVEL = 27;
-static const int PINAMBIENTE = 12;
-static const int PINHUMEDAD = 13;
-static const int PINLED = 5;
 
-static const float VCARGASTART = 11.50;
-static const float VCARGASTOP = 14.20;
-
-// FLUJO
-static const int TICKSPORLITRO = 270;			// Segun lo que leo podria ser esto, ya lo calibraremos a ver ....
 
 
 #pragma endregion
@@ -85,7 +70,7 @@ static const int TICKSPORLITRO = 270;			// Segun lo que leo podria ser esto, ya 
 AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskOtaRun,THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaComandos,ColaRespuestas;
@@ -102,606 +87,17 @@ WiFiUDP UdpNtp;
 
 // Manejador del NTP. Cliente red, servidor, offset zona horaria, intervalo de actualizacion.
 // FALTA IMPLEMENTAR ALGO PARA CONFIGURAR LA ZONA HORARIA
-NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 3600);
+static NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 3600);
 
 // Para el sensor de temperatura de la CPU. Definir aqui asi necesario es por no estar en core Arduino.
 extern "C" {uint8_t temprature_sens_read();}
 
-#pragma endregion
+// Objeto de la configuracion en fichero
+ConfigCom MiConfig(FICHERO_CONFIG_COM);
 
-#pragma region CLASE ConfigClass
-
-class ConfigClass{
-
-	private:
-
-		String c_fichero;
-	
-	public:
-	
-		char mqttserver[40];
-		char mqttport[6];
-		char mqtttopic[33];
-		char mqttusuario[19];
-		char mqttpassword[19];
-
-		String cmndTopic;
-		String statTopic;
-		String teleTopic;
-		String lwtTopic;
-
-		// Esto no se salva en el fichero, lo hace el objeto Wifi
-		// Lo pongo aqui como almacenamiento temporal para los comandos de configuracion
-		char Wssid[30];
-		char WPasswd[100];
-
-		// Otras configuraciones permanentes del proyecto
-		
-		ConfigClass(String fichero);
-		~ConfigClass() {};
-
-		boolean leeconfig ();
-		boolean escribeconfig ();
-		
-};
-
-	// Constructor
-	ConfigClass::ConfigClass(String fichero){
-
-		c_fichero = fichero;
-
-		mqttserver[0]= '\0';
-		mqttport[0] = '\0';
-		mqtttopic[0] = '\0';
-		mqttusuario[0] = '\0';
-		mqttpassword[0] = '\0';
-
-		Wssid[0] = '\0';
-		WPasswd[0]  = '\0';	
-				
-	}
-
-	// Leer la configuracion desde el fichero
-	boolean ConfigClass::leeconfig(){
-	
-		if (SPIFFS.exists(c_fichero)) {
-			// Si existe el fichero abrir y leer la configuracion y asignarsela a las variables definidas arriba
-			File ComConfigFile = SPIFFS.open(c_fichero, "r");
-			if (ComConfigFile) {
-				size_t size = ComConfigFile.size();
-				// Declarar un buffer para almacenar el contenido del fichero
-				std::unique_ptr<char[]> buf(new char[size]);
-				// Leer el fichero al buffer
-				ComConfigFile.readBytes(buf.get(), size);
-				DynamicJsonBuffer jsonBuffer;
-				JsonObject& json = jsonBuffer.parseObject(buf.get());
-				//json.printTo(Serial);
-				
-				if (json.success()) {
-					Serial.print("Configuracion del fichero leida: ");
-					json.printTo(Serial);
-				  Serial.println("");
-
-					// Leer los valores del MQTT
-					strcpy(mqttserver, json["mqttserver"]);
-					strcpy(mqttport, json["mqttport"]);
-					strcpy(mqtttopic, json["mqtttopic"]);
-					strcpy(mqttusuario, json["mqttusuario"]);
-					strcpy(mqttpassword, json["mqttpassword"]);
-
-					// Dar valor a las strings con los nombres de la estructura de los topics
-					cmndTopic = "cmnd/" + String(mqtttopic) + "/#";
-					statTopic = "stat/" + String(mqtttopic);
-					teleTopic = "tele/" + String(mqtttopic);
-					lwtTopic = teleTopic + "/LWT";
-					return true;
-
-					Serial.println("Servidor MQTT: " + String(mqttserver)) + ":" + String(mqttport);
-					Serial.println("Topic Comandos: " + cmndTopic);
-					Serial.println("Topic Respuestas: " + statTopic);
-					Serial.println("Topic Telemetria: " + teleTopic);
-					Serial.println("Topic LWT: " + lwtTopic);
-										
-				}
-					
-				else {
-
-					Serial.println("No se puede cargar la configuracion desde el fichero");
-					return false;
-
-				}
-			}
-
-			else {
-
-				Serial.println ("No se puede leer el fichero de configuracion");
-				return false;
-
-			}
-
-		}
-
-		else	{
-
-				Serial.println("No se ha encontrado un fichero de configuracion.");
-				Serial.println("Por favor configura el dispositivo desde el terminal serie y reinicia el controlador.");
-				Serial.println("Informacion de los comandos con el comando Help");
-				return false;
-
-		}
-
-	}
-	
-	// Salvar la configuracion en el fichero
-	boolean ConfigClass::escribeconfig(){
-
-		Serial.println("Salvando la configuracion en el fichero");
-		DynamicJsonBuffer jsonBuffer;
-		JsonObject& json = jsonBuffer.createObject();
-		json["mqttserver"] = mqttserver;
-		json["mqttport"] = mqttport;
-		json["mqtttopic"] = mqtttopic;
-		json["mqttusuario"] = mqttusuario;
-		json["mqttpassword"] = mqttpassword;
-		
-		File ComConfigFile = SPIFFS.open(c_fichero, "w");
-		if (!ComConfigFile) {
-			Serial.println("No se puede abrir el fichero de configuracion de las comunicaciones");
-			return false;
-		}
-
-		//json.prettyPrintTo(Serial);
-		json.printTo(ComConfigFile);
-		ComConfigFile.close();
-		Serial.println("Configuracion Salvada");
-		
-		// Dar valor a las strings con los nombres de la estructura de los topics
-		cmndTopic = "cmnd/" + String(mqtttopic) + "/#";
-		statTopic = "stat/" + String(mqtttopic);
-		teleTopic = "tele/" + String(mqtttopic);
-		lwtTopic = teleTopic + "/LWT";
-
-		return true;
-
-	}
-
-	// Objeto de la clase ConfigClass (configuracion guardada en el fichero)
-	ConfigClass MiConfig = ConfigClass(FICHERO_CONFIG_COM);
-
-#pragma endregion
-
-#pragma region CLASE RiegaMatico - Clase principial para Mi Proyecto
-
-// Una clase tiene 2 partes:
-// La primera es la definicion de todas las propiedades y metodos, publicos o privados.
-// La segunda es la IMPLEMENTACION de esos metodos o propiedades (que hacen). En C++ mas que nada de los METODOS (que son basicamente funciones)
-
-// Definicion
-class RiegaMatico {
-
-
-private:
-
-	// Variables Privadas
-	unsigned long t_uptime;						// Para el tiempo que llevamos en marcha
-	bool HayQueSalvar = false;					// Flag para saber si hay algo que salvar en la config.
-	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
-	bool b_activa = false;						// Flag para saber si estamos regando (bomba activa)
-	String mificheroconfig;						// Para almacenar el nombre del fichero de configuracion. Nos la pasa el constructor.
-	unsigned long t_ciclo_global = 20;			// Tiempo de riego de cada parcial (seg).
-	unsigned long t_espera_parciales = 60;		// Tiempo de espera entre parciales (seg).
-	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
-	int t_n_parciales = 6;						// Numero total de parciales del riego
-	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
-	uint16_t t_vbatlectura;						// Lectura del ADC de la bateria
-	uint16_t t_vcarglectura;					// Lectura del ADC del cargador
-	float t_vbateria;							// Tension en la bateria.
-	float t_vcargador;							// Tension en el cargador.
-	boolean t_nivel;							// Estado de la reserva de agua.
-	boolean cargando = false;					// Flag para saber si esta cargando
-	int t_flujotick;							// Contador para el medidor de flujo
-	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
-	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
-	
-	// Funciones Privadas
-	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
-	RespondeComandoCallback MiRespondeComandos = nullptr;								// Definir el objeto que va a contener la funcion que vendra de fuera AQUI en la clase.
-
-	static void ISRFlujoTick();					// ISR estatica para pasarle al attachinterrupt
-	static RiegaMatico* sRiegaMatico;			// Una objeto para albergar puntero a la instancia del riegamatico y manipularla desde dentro desde la interrupcion
-
-public:
-
-	// Constructor
-	RiegaMatico(String fich_config_RiegaMatico);					// Constructor (es la funcion que devuelve un Objeto de esta clase)
-	~RiegaMatico() {};												// Destructor (Destruye el objeto, o sea, lo borra de la memoria)
-
-	//  Variables Publicas
-	String HardwareInfo;											// Identificador del HardWare y Software
-	bool ComOK;														// Si la wifi y la conexion MQTT esta OK
-	
-	// Funciones Publicas
-	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
-	
-	void Run();														// Metodo RUN de la clase ejecutado por la Task correspondiente
-	
-	void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Funciona de callback de respondecomandos
-	
-	boolean LeeConfig();											// Leer la configuracion del fichero de config
-	boolean SalvaConfig();											// Salvar la configuracion del fichero de config
-	
-	void Regar();													// Metodo para iniciar un ciclo de riego
-	void Cancelar();												// Metodo para cancelar el riego en curso
-	
-	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
-	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
-	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
-	
-	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
-
-};
-
+// Objeto riegamtico
 RiegaMatico* RiegaMatico::sRiegaMatico	 = 0;						// Instancia vacia de la clase (reserva de mem)
-
-// Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
-RiegaMatico::RiegaMatico(String fich_config_RiegaMatico) {	
-
-	// Apuntar la instancia creada a sRiegaMatico (de momento para lo de la interrupcion)
-	sRiegaMatico = this;
-	
-	HardwareInfo = "RiegaMatico.ESP32.1.0";
-	ComOK = false;
-	mificheroconfig = fich_config_RiegaMatico;
-
-	riegoerror = false;												// quitar cuando este implementado cargar desde el fichero de configuracion
-		
-	// Habilitar un generador PWM
-	ledcSetup(0,2000,8);
-	// Y asignarlo a un pin
-	ledcAttachPin(PINBOMBA,0);
-	// Y poner a cero
-	ledcWrite(0,0);
-	
-	// Salida para el rele de carga
-	pinMode(PINCARGA,OUTPUT);
-	digitalWrite(PINCARGA,LOW);
-	
-	// Sensor de Nivel del deposito (reserva)
-	pinMode(PINNIVEL,INPUT_PULLDOWN);
-
-	// Conversores ADC	
-	adc1_config_width(ADC_WIDTH_BIT_12);
-	// Atenuacion 11dB es maxima y permite leer 11dB attenuation (ADC_ATTEN_DB_11) between 150 to 2450mV
-	// ADC1 channel 7 is GPIO35 - BATERIA
-	// ADC1 channel 6 is GPIO34 - CARGADOR
-	//adc1_config_channel_atten(ADC1_CHANNEL_6,ADC_ATTEN_11db);
-	adc1_config_channel_atten(ADC1_CHANNEL_7,ADC_ATTEN_11db);
-	//analogSetSamples(10);
-	
-	// LED
-	pinMode(PINLED, OUTPUT);
-	digitalWrite(PINLED, LOW);
-
-	// Contador de flujo
-	t_flujotick = 0;
-	pinMode(PINFLUJO, INPUT_PULLUP);
-	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
-
-}
-
-// Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
-void RiegaMatico::SetRespondeComandoCallback(RespondeComandoCallback ref) {
-
-	MiRespondeComandos = (RespondeComandoCallback)ref;
-
-}
-
-// Metodo que devuelve un JSON con el estado
-String RiegaMatico::MiEstadoJson(int categoria) {
-
-	DynamicJsonBuffer jBuffer;
-	JsonObject& jObj = jBuffer.createObject();
-
-	// Dependiendo del numero de categoria en la llamada devolver unas cosas u otras
-	switch (categoria)
-	{
-
-	// INFO GENERAL
-	case 1:
-
-		// Esto llena de objetos de tipo "pareja propiedad valor"
-		jObj.set("TIME", ClienteNTP.getFormattedTime());	// HORA
-		jObj.set("UPT", t_uptime);							// Uptime en segundos
-		jObj.set("HI", HardwareInfo);						// Info del Hardware
-		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
-		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
-		jObj.set("ADCBAT", t_vbatlectura);					// Lectura del ADC Bateria
-		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
-		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
-		jObj.set("VCARG", t_vcargador);						// Tension del cargador
-		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
-		jObj.set("CARG", cargando);							// Estado de la carga
-
-		break;
-
-	// INFO DE RIEGOS
-	case 2:
-
-		jObj.set("TCICLO", t_ciclo_global);						// Valor duracion de cada riego parcial (en segundos)					
-		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
-		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
-		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
-		jObj.set("PWMBOMBA", ledcRead(0));						// Valor actual PWM de la bomba
-		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
-		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
-		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
-		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
-
-		break;
-
-	// SI ME LLAMAN CON OTRO PARAMETRO
-	default:
-
-		jObj.set("NOINFO", "NOINFO");						// MAL LLAMADO
-
-		break;
-	}
-
-
-	// Crear un buffer (aray de 100 char) donde almacenar la cadena de texto del JSON
-	char JSONmessageBuffer[200];
-
-	// Tirar al buffer la cadena de objetos serializada en JSON con la propiedad printTo del objeto de arriba
-	jObj.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-
-	// devolver el char array con el JSON
-	return JSONmessageBuffer;
-	
-}
-
-void RiegaMatico::Regar(){
-
-	ARegar = true;
-	t_flujotick = 0;
-	t_n_parciales_count = t_n_parciales;
-		
-}
-
-void RiegaMatico::Cancelar(){
-	
-	ledcWrite(0,0);
-	digitalWrite(PINLED, LOW);
-	b_activa=false;
-	ARegar = false;
-	t_n_parciales_count = 0;
-			
-	// Verificar si realmente hemos echado agua con el medidor de flujo
-	if (t_flujotick > 100){
-
-		riegoerror = false;
-
-	}
-
-	else{
-
-		riegoerror = true;
-
-	}
-
-	this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
-
-
-}
-
-boolean RiegaMatico::SalvaConfig(){
-	
-
-	File mificheroconfig_handler = SPIFFS.open(mificheroconfig, "w");
-
-	if (!mificheroconfig_handler) {
-		Serial.println("No se puede abrir el fichero de configuracion de mi proyecto");
-		return false;
-	}
-
-	if (mificheroconfig_handler.print(MiEstadoJson(1))){
-
-		return true;
-
-	}
-
-	else {
-
-		return false;
-
-	}
-
-}
-
-boolean RiegaMatico::LeeConfig(){
-
-	// Sacar del fichero de configuracion, si existe, las configuraciones permanentes
-	if (SPIFFS.exists(mificheroconfig)) {
-
-		File mificheroconfig_handler = SPIFFS.open(mificheroconfig, "r");
-		if (mificheroconfig_handler) {
-			size_t size = mificheroconfig_handler.size();
-			// Declarar un buffer para almacenar el contenido del fichero
-			std::unique_ptr<char[]> buf(new char[size]);
-			// Leer el fichero al buffer
-			mificheroconfig_handler.readBytes(buf.get(), size);
-			DynamicJsonBuffer jsonBuffer;
-			JsonObject& json = jsonBuffer.parseObject(buf.get());
-			if (json.success()) {
-
-				Serial.print("Configuracion de mi proyecto Leida: ");
-				json.printTo(Serial);
-				Serial.println("");
-				return true;
-
-			}
-
-			return false;
-
-		}
-
-		return false;
-
-	}
-
-	return false;
-
-}
-
-
-
-void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
-
-	t_ciclo_global = tiempo_riego;
-	HayQueSalvar = true;
-	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
-
-}	
-
-void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera){
-
-	t_espera_parciales = tiempo_espera;
-	HayQueSalvar = true;
-	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
-
-}	
-
-void RiegaMatico::ConfigNumParciales(int n_parciales){
-
-	t_n_parciales = n_parciales;
-	HayQueSalvar = true;
-	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
-
-}
-
-void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
-
-	if (sRiegaMatico != 0){
-
-		sRiegaMatico->FujoTick();			// Y por tanto SI puedo llamar a una funcion publica no estatica (y por ende la llama la interrupcion y la puedo llamar por otro lado si gusto)
-
-	}
-
-}
-
-void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador de flujo
-
-	t_flujotick++;
-
-}
-
-void RiegaMatico::Run() {
-	
-	// Si hay que salvar, salvar (facil no?)
-	if (HayQueSalvar){
-
-		SalvaConfig();
-		HayQueSalvar = false;
-
-	}
-	
-	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
-	if ( ARegar == true && b_activa == false){
-
-		// en este caso pueden ocurrir varias cosas:
-
-		// Que sea el primer riego nada mas lanzar el comando. Ni esperamos ni nada a regar
-		if (t_n_parciales_count == t_n_parciales){
-
-			t_init_riego = millis(); // Actualizo la marca de tiempo
-			b_activa=true;
-			t_n_parciales_count--;
-			horaultimoriego = ClienteNTP.getFormattedTime();
-
-			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,240);
-			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
-
-		}
-
-		// Si estoy en algun parcial que no sea el ultimo y se ha superado el tiempo de parcial
-		else if (t_n_parciales_count < t_n_parciales && t_n_parciales_count > 0 && (millis() - t_init_riego) >= t_espera_parciales*1000){
-
-			t_init_riego = millis(); 		// Actualizo la marca de tiempo
-			b_activa=true;
-			t_n_parciales_count--;	
-
-			digitalWrite(PINLED, HIGH);
-			ledcWrite(0,240);
-			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
-
-		}
-
-		// Si estoy en el ultimo parcial ....
-		else if (t_n_parciales_count <= 0){
-
-			this->Cancelar();
-
-		}
-				
-	}
-	
-	// Si la bomba esta activa no pensamos mucho. Si el tiempo de riego acaba parar la bomba
-	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global*1000){
-
-		ledcWrite(0,0);
-		digitalWrite(PINLED, LOW);
-		b_activa=false;
-
-		t_init_riego = millis(); // Empieza la pausa y voy a usar esto tambien para contar
-
-		this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
-
-	}
-
-	// Lectura de Sensores
-	
-	//t_vbatlectura = analogRead(PINVBAT);
-	//t_vcarglectura = analogRead(PINVCARGA);
-
-	t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
-	delay(10);
-	//t_vcarglectura = adc1_get_raw(ADC1_CHANNEL_6);
-	//delay(10);
-
-	t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
-	//t_vcargador = (t_vcarglectura * 14.56f) / 3480.0f;
-
-	t_nivel = digitalRead(PINNIVEL);
-
-	
-	// CARGA
-	if (t_vbateria <= VCARGASTART && !cargando){
-
-		digitalWrite(PINCARGA,HIGH);
-		cargando = true;
-
-	}
-
-	
-	if (t_vbateria >= VCARGASTOP){
-
-		digitalWrite(PINCARGA,LOW);
-		cargando = false;
-
-	}
-
-	// UpTime Minutos
-	t_uptime = esp_timer_get_time() / 1000000;
-
-
-}
-
-#pragma endregion
-
-
-// Objeto de la clase RiegaMatico.
-
-RiegaMatico RiegaMaticoOBJ(FICHERO_CONFIG_PRJ);
+RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 
 #pragma endregion
 
@@ -722,6 +118,8 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 			ArduinoOTA.begin();
 			Serial.println("Proceso OTA arrancado.");
 			ClienteNTP.begin();
+			MiRiegaMatico.reconexioneswifi ++;
+
 			if (ClienteNTP.update()){
 
 				Serial.print("Reloj Actualizado via NTP: ");
@@ -791,7 +189,7 @@ void onMqttConnect(bool sessionPresent) {
 	else{
 
 		// Si todo ha ido bien, proceso de inicio terminado.
-		RiegaMaticoOBJ.ComOK = true;
+		MiRiegaMatico.ComOK = true;
 		Serial.print("** ");
 		Serial.print(ClienteNTP.getFormattedTime());
 		Serial.println(" - SISTEMA INICIADO CORRECTAMENTE **");
@@ -896,7 +294,7 @@ void MandaTelemetria() {
 			ObjJson.set("TIPO","MQTT");
 			ObjJson.set("CMND","TELE");
 			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(1));
+			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
 			
 			char JSONmessageBuffer[300];
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
@@ -910,7 +308,7 @@ void MandaTelemetria() {
 			t_topic = MiConfig.teleTopic + "/INFO2";
 
 			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",RiegaMaticoOBJ.MiEstadoJson(2));
+			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(2));
 			
 			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
@@ -948,30 +346,6 @@ void TaskGestionRed ( void * parameter ) {
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
-
-}
-
-// Tarea para el Handler de ArduinoOTA
-void TaskOtaRun ( void * parameter ){
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 10;
-	xLastWakeTime = xTaskGetTickCount ();
-
-	Serial.println("Tarea OTA Lanzada");
-
-	while(true){
-
-		if (WiFi.isConnected()){
-			
-			
-			
-		}
-				
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-
 
 }
 
@@ -1078,31 +452,31 @@ void TaskProcesaComandos ( void * parameter ){
 
 					else if (COMANDO == "REGAR"){
 
-						RiegaMaticoOBJ.Regar();
+						MiRiegaMatico.Regar();
 
 					}
 
 					else if (COMANDO == "CANCELAR"){
 
-						RiegaMaticoOBJ.Cancelar();
+						MiRiegaMatico.Cancelar();
 
 					}
 
 					else if (COMANDO == "TRIEGO"){
 
-						RiegaMaticoOBJ.ConfigTiempoRiego(PAYLOAD.toDouble());
+						MiRiegaMatico.ConfigTiempoRiego(PAYLOAD.toDouble());
 
 					}
 
 					else if (COMANDO == "TPAUSA"){
 
-						RiegaMaticoOBJ.ConfigEsperaParciales(PAYLOAD.toDouble());
+						MiRiegaMatico.ConfigEsperaParciales(PAYLOAD.toDouble());
 
 					}
 
 					else if (COMANDO == "NPARCIALES"){
 
-						RiegaMaticoOBJ.ConfigNumParciales(PAYLOAD.toInt());
+						MiRiegaMatico.ConfigNumParciales(PAYLOAD.toInt());
 
 					}
 
@@ -1284,19 +658,18 @@ void TaskComandosSerieRun( void * parameter ){
 void TaskRiegaMaticoRun( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 1000;
+	const TickType_t xFrequency = 100;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 	while(true){
 
-		RiegaMaticoOBJ.Run();
+		MiRiegaMatico.Run();
 
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
 
 }
-
 
 // tarea para el envio periodico de la telemetria
 void TaskMandaTelemetria( void * parameter ){
@@ -1330,13 +703,13 @@ void setup() {
 	Serial.println("-- Iniciando Controlador RiegaMatico --");
 
 	// Asignar funciones Callback
-	RiegaMaticoOBJ.SetRespondeComandoCallback(MandaRespuesta);
+	MiRiegaMatico.SetRespondeComandoCallback(MandaRespuesta);
 		
 	// Comunicaciones
 	ClienteMQTT = AsyncMqttClient();
 	WiFi.onEvent(WiFiEventCallBack);
 	WiFi.setHostname("RIEGAMATICO");
-
+	
 	// Iniciar la Wifi
 	WiFi.begin();
 
@@ -1357,7 +730,7 @@ void setup() {
   			ClienteMQTT.onPublish(onMqttPublish);
   			ClienteMQTT.setServer(MiConfig.mqttserver, 1883);
 			ClienteMQTT.setCleanSession(true);
-			ClienteMQTT.setClientId("ControlAzimut");
+			ClienteMQTT.setClientId("RiegaMaticoMQTT");
 			ClienteMQTT.setCredentials(MiConfig.mqttusuario,MiConfig.mqttpassword);
 			ClienteMQTT.setKeepAlive(4);
 			ClienteMQTT.setWill(MiConfig.lwtTopic.c_str(),2,true,"Offline");
@@ -1369,8 +742,8 @@ void setup() {
 	
 		}
 
-		// Leer configuracion salvada del Objeto RiegaMaticoOBJ
-		RiegaMaticoOBJ.LeeConfig();
+		// Leer configuracion salvada del Objeto MiRiegaMatico
+		MiRiegaMatico.LeeConfig();
 
 	}
 
@@ -1396,8 +769,6 @@ void setup() {
 	// Tareas CORE1
 	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,1);
 	
-	//xTaskCreatePinnedToCore(TaskOtaRun,"OTARun",1000,NULL,1,&THandleTaskOtaRun,1);
-
 	// Init Completado.
 	Serial.println("Setup Completado.");
 	
