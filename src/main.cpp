@@ -70,7 +70,7 @@ static const int HORA_LOCAL = 2;
 AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskMandaTelemetriaSlow, THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaComandos,ColaRespuestas;
@@ -134,7 +134,8 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 			
         	break;
     	case SYSTEM_EVENT_STA_DISCONNECTED:
-        	Serial.println("Conexion WiFi: Desconetado");
+        	
+			//Serial.println("Conexion WiFi: Desconetado");
         	break;
 		default:
 			break;
@@ -173,6 +174,7 @@ void onMqttConnect(bool sessionPresent) {
 
 		// Si llegamos hasta aqui es estado de las comunicaciones con WIFI y MQTT es OK
 		Serial.println("Publicado Online en Topic LWT: " + (MiConfig.teleTopic + "/LWT"));
+		MiRiegaMatico.MandaConfig();
 		
 		lwtflag = true;
 
@@ -193,7 +195,7 @@ void onMqttConnect(bool sessionPresent) {
 		Serial.print("** ");
 		Serial.print(ClienteNTP.getFormattedTime());
 		Serial.println(" - SISTEMA INICIADO CORRECTAMENTE **");
-
+		
 	}
 
 }
@@ -676,13 +678,31 @@ void TaskRiegaMaticoRun( void * parameter ){
 void TaskMandaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 5000;
+	const TickType_t xFrequency = 10000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 
 	while(true){
 
 		MandaTelemetria();
+		
+		vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+	}
+	
+}
+
+// tarea para el envio periodico de la telemetria
+void TaskMandaTelemetriaSlow( void * parameter ){
+
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 60000;
+	xLastWakeTime = xTaskGetTickCount ();
+	
+
+	while(true){
+
+		MiRiegaMatico.MandaConfig();
 		
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
@@ -765,6 +785,7 @@ void setup() {
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
 	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
+	xTaskCreatePinnedToCore(TaskMandaTelemetriaSlow,"MandaTelemetriaSlow",2000,NULL,1,&THandleTaskMandaTelemetriaSlow,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
 	// Tareas CORE1

@@ -225,7 +225,6 @@ boolean RiegaMatico::LeeConfig(){
 }
 
 
-
 void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
 
 	t_ciclo_global = tiempo_riego;
@@ -249,6 +248,14 @@ void RiegaMatico::ConfigNumParciales(int n_parciales){
 	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
 
 }
+
+void RiegaMatico::MandaConfig(){
+
+	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
+	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
+	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
+}
+
 
 void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
 

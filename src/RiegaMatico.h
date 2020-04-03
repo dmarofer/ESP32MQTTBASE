@@ -74,7 +74,8 @@ public:
 	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
 	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
-	
+	void MandaConfig();												// Metodo para enviar el JSON de la configuracion a peticion
+
 	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
 
 };
