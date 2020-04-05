@@ -8,6 +8,7 @@
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <JLed.h>
 #include <esp32-hal.h>
+#include <vector>
 
 // Led que se maneja con la maravillosa libreria JLed
 // Iniciar el led en modo Off
@@ -273,16 +274,9 @@ void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador d
 
 }
 
-void RiegaMatico::Run() {
-	
-	// Si hay que salvar, salvar (facil no?)
-	if (HayQueSalvar){
 
-		SalvaConfig();
-		HayQueSalvar = false;
+void RiegaMatico::RiegoRun(){
 
-	}
-	
 	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
 	if ( ARegar == true && b_activa == false){
 
@@ -337,18 +331,21 @@ void RiegaMatico::Run() {
 
 	}
 
-	// Lectura de Sensores
-	
-	//t_vbatlectura = analogRead(PINVBAT);
-	//t_vcarglectura = analogRead(PINVCARGA);
+}
+
+
+void RiegaMatico::GestionCarga(){
+
+
+	// TODO: MEDIA DE LAS MEDIDAS
+
+
 
 	t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
 	delay(10);
-	//t_vcarglectura = adc1_get_raw(ADC1_CHANNEL_6);
-	//delay(10);
-
+	
 	t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
-	//t_vcargador = (t_vcarglectura * 14.56f) / 3480.0f;
+	
 
 	t_nivel = digitalRead(PINNIVEL);
 
@@ -368,6 +365,26 @@ void RiegaMatico::Run() {
 		cargando = false;
 
 	}
+
+}
+
+
+
+void RiegaMatico::Run() {
+	
+	// Si hay que salvar, salvar (facil no?)
+	if (HayQueSalvar){
+
+		SalvaConfig();
+		HayQueSalvar = false;
+
+	}
+	
+
+	this->RiegoRun();
+
+	
+	
 
 	// UpTime Minutos
 	t_uptime = esp_timer_get_time() / 1000000;

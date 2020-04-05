@@ -41,6 +41,11 @@ private:
 	static void ISRFlujoTick();					// ISR estatica para pasarle al attachinterrupt
 	static RiegaMatico* sRiegaMatico;			// Una objeto para albergar puntero a la instancia del riegamatico y manipularla desde dentro desde la interrupcion
 
+	void RiegoRun();							// El algoritmo que controla el ciclo de riego y la bomba
+
+	void GestionCarga();						// Algoritmo que gestiona la carga de la bateria
+
+
     // Para almacenar Alias (referencia) al objeto tipo NTPClient para poder usar en la clase el que viene del Main
     NTPClient &ClienteNTP;
     
