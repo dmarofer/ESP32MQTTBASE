@@ -25,22 +25,16 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #pragma region INCLUDES
 // Librerias comantadas en proceso de sustitucion por la WiFiMQTTManager
 
+#include <ConfigCom.h>					// La configuracion de las comunicaciones
+#include <RiegaMatico.h>				// La clase RiegaMatico
 #include <AsyncMqttClient.h>			// Vamos a probar esta que es Asincrona: https://github.com/marvinroger/async-mqtt-client
 #include <FS.h>							// Libreria Sistema de Ficheros
 #include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
-#include <DNSServer.h>					// La necesita WifiManager para el portal captivo
-#include <WebServer.h>					// La necesita WifiManager para el formulario de configuracion (ESP32)
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
 #include <string>						// Para el manejo de cadenas
-//#include <Bounce2.h>					// Libreria para filtrar rebotes de los Switches: https://github.com/thomasfredericks/Bounce2
-//#include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
-//#include "driver/adc.h"
-#include <Configuracion.h>
-#include <ConfigCom.h>
-#include <RiegaMatico.h>
 
 #pragma endregion
 
@@ -48,19 +42,6 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 
 // Para el periodo de repeticon de la tarea gestionada por el timer (en microsegundos);
 static const uint64_t TIMER_TICK_US = 200;
-
-// Para el nombre del fichero de configuracion de comunicaciones
-static const String FICHERO_CONFIG_COM = "/RiegaMaticoCom.json";
-
-// Para el nombre del fichero de configuracion del proyecto
-static const String FICHERO_CONFIG_PRJ = "/RiegaMaticoCfg.json";
-
-// Para la zona horaria (horas de diferencia con UTC)
-static const int HORA_LOCAL = 2;
-
-
-
-
 
 #pragma endregion
 
@@ -70,7 +51,7 @@ static const int HORA_LOCAL = 2;
 AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskMandaTelemetriaSlow, THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaComandos,ColaRespuestas;
@@ -174,6 +155,7 @@ void onMqttConnect(bool sessionPresent) {
 
 		// Si llegamos hasta aqui es estado de las comunicaciones con WIFI y MQTT es OK
 		Serial.println("Publicado Online en Topic LWT: " + (MiConfig.teleTopic + "/LWT"));
+		// Mandar la config a los topic stat correspondietnes para actualizar los controles del HA
 		MiRiegaMatico.MandaConfig();
 		
 		lwtflag = true;
@@ -303,22 +285,20 @@ void MandaTelemetria() {
 			
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
-
-			/*
 			
-			// Telemetria 2 rehusando los objetos anterioires
-			t_topic = MiConfig.teleTopic + "/INFO2";
+			
+			// Telemetria 3 rehusando los objetos anterioires
+			t_topic = MiConfig.teleTopic + "/INFO3";
 
 			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(2));
+			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(3));
 			
 			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
-
-			*/
+			
 
 	}
 	
@@ -480,6 +460,12 @@ void TaskProcesaComandos ( void * parameter ){
 					else if (COMANDO == "NPARCIALES"){
 
 						MiRiegaMatico.ConfigNumParciales(PAYLOAD.toInt());
+
+					}
+
+					else if (COMANDO == "BOMBASET"){
+
+						MiRiegaMatico.ConfigPWMBomba(PAYLOAD.toInt());
 
 					}
 
@@ -692,24 +678,6 @@ void TaskMandaTelemetria( void * parameter ){
 	
 }
 
-// tarea para el envio periodico de la telemetria
-void TaskMandaTelemetriaSlow( void * parameter ){
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 60000;
-	xLastWakeTime = xTaskGetTickCount ();
-	
-
-	while(true){
-
-		MiRiegaMatico.MandaConfig();
-		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-	
-}
-
 #pragma endregion
 
 #pragma region Funcion Setup() de ARDUINO
@@ -725,6 +693,9 @@ void setup() {
 
 	// Asignar funciones Callback
 	MiRiegaMatico.SetRespondeComandoCallback(MandaRespuesta);
+
+	// Incializar el objeto Riegamatico con sus cosas.
+	MiRiegaMatico.Begin();
 		
 	// Comunicaciones
 	ClienteMQTT = AsyncMqttClient();
@@ -785,7 +756,6 @@ void setup() {
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
 	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
-	xTaskCreatePinnedToCore(TaskMandaTelemetriaSlow,"MandaTelemetriaSlow",2000,NULL,1,&THandleTaskMandaTelemetriaSlow,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
 	// Tareas CORE1
@@ -793,7 +763,7 @@ void setup() {
 	
 	// Init Completado.
 	Serial.println("Setup Completado.");
-	
+		
 }
 
 #pragma endregion

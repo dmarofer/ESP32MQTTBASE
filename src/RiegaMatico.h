@@ -5,6 +5,7 @@
 #include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <JLed.h>
+#include <LiquidCrystal_I2C.h>
 
 class RiegaMatico {
 
@@ -32,7 +33,9 @@ private:
 	int t_flujotick;							// Contador para el medidor de flujo
 	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
 	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
-    
+    int fuerzabomba = 240;						// PWM de la bomba
+	float TempTierra1;							// Temperatura Tierra 1
+	float TempTierra2;							// Temperatura Tierra 2
     	
 	// Funciones Privadas
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
@@ -45,6 +48,9 @@ private:
 
 	void GestionCarga();						// Algoritmo que gestiona la carga de la bateria
 
+	void LeeAmbiente();							// Funcion de lactura del DHT11
+
+	void LeeTempTierra();						// Lectura de los DS18B20 del bus OneWire
 
     // Para almacenar Alias (referencia) al objeto tipo NTPClient para poder usar en la clase el que viene del Main
     NTPClient &ClienteNTP;
@@ -53,6 +59,14 @@ private:
 
 public:
 
+	enum SleepModes {
+
+		SleepModeApagado = 1,
+		//SleepModeDormido = 2,
+		//SleepModeActivo = 3
+
+	};
+	
 	// Constructor
 	RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP);	// Constructor. Se le pasa el nombre de fichero de config y una referencia a algunos objetos
 	~RiegaMatico() {};												    // Destructor (Destruye el objeto, o sea, lo borra de la memoria)
@@ -79,8 +93,13 @@ public:
 	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
 	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
+	void ConfigPWMBomba(int n_fuerzabomba);							// Metodo para configurar el numero de parciales. 
 	void MandaConfig();												// Metodo para enviar el JSON de la configuracion a peticion
 
 	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
+
+	void Adormir(SleepModes modo);									// Funcion para el modo Sleep
+
+	void Begin();													// Para inicializar ciertas cosas que dan guerra. Cosas que no dependan del main, solo internas (por ejemplo nada de comunicaciones ni serialprint aqui)
 
 };

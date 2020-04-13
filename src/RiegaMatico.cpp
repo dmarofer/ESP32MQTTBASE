@@ -9,16 +9,37 @@
 #include <JLed.h>
 #include <esp32-hal.h>
 #include <vector>
+#include <DHTesp.h>
+#include <LiquidCrystal_I2C.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-// Led que se maneja con la maravillosa libreria JLed
+// Led que se maneja con la libreria JLed (va un poco regular en ESP32, hay cosas tiempos y eso que no van bien)
 // Iniciar el led en modo Off
 auto LedEstado = JLed(PINLED).Off();
+
+// Para el DHT11 o 22 de ambiente
+DHTesp SensorAmbiente;
+TempAndHumidity LecturaAmbiente;
+
+// LCD
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+// Bus Onewire para Temperatura Tierra DS18B20
+OneWire MiOneWireBus(ONEWIREBUS);  // (a 4.7K resistor is necessary). Bueno ya veremos se puede pufear con el pullup .....
+
+// Pasamos el bus al objeto DallasTemperature
+DallasTemperature MisTermometrosOnewire(&MiOneWireBus);
+
+// Array con las direcciones de cada uno de los termometros del bus Onewire
+DeviceAddress TempMaceta1, TempMaceta2;
+
+
 
 // Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
 RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) : ClienteNTP(ClienteNTP) {	
 
-        
-    // Apuntar la instancia creada a sRiegaMatico (de momento para lo de la interrupcion)
+	// Apuntar la instancia creada a sRiegaMatico (de momento para lo de la interrupcion)
 	sRiegaMatico = this;
 	
 	HardwareInfo = "RiegaMatico.ESP32.1.0";
@@ -48,7 +69,10 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	// ADC1 channel 6 is GPIO34 - CARGADOR
 	//adc1_config_channel_atten(ADC1_CHANNEL_6,ADC_ATTEN_11db);
 	adc1_config_channel_atten(ADC1_CHANNEL_7,ADC_ATTEN_11db);
-	//analogSetSamples(10);
+	//analogSetCycles(8);                   // Set number of cycles per sample, default is 8 and provides an optimal result, range is 1 - 255
+    //analogSetSamples(5);                  // Set number of samples in the range, default is 1, it has an effect on sensitivity has been multiplied
+    analogSetClockDiv(255);            	    // Set the divider for the ADC clock, default is 1, range is 1 - 255
+
 	
 	// LED (viejo)
 	//pinMode(PINLED, OUTPUT);
@@ -58,6 +82,14 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	t_flujotick = 0;
 	pinMode(PINFLUJO, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
+
+	// Sensor Ambiente
+	SensorAmbiente.setup(PINAMBIENTE, DHTesp::DHT11);
+
+	// LCD
+	lcd.init();
+	lcd.noBacklight();
+	lcd.off();
 
 }
 
@@ -78,7 +110,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	switch (categoria)
 	{
 
-	// INFO GENERAL
+	// JSON CON LA INFORMACION PRINCIPAL DEL HARDWARE
 	case 1:
 
 		// Esto llena de objetos de tipo "pareja propiedad valor"
@@ -86,7 +118,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("UPT", t_uptime);							// Uptime en segundos
 		jObj.set("HI", HardwareInfo);						// Info del Hardware
 		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
-		//jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
+		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
 		jObj.set("ADCBAT", t_vbatlectura);					// Lectura del ADC Bateria
 		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
 		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
@@ -94,23 +126,36 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
 		jObj.set("CARG", cargando);							// Estado de la carga
         jObj.set("RECW", reconexioneswifi);					// Numero de reconexiones Wifi
-
+		
 		break;
 
-	// INFO DE RIEGOS
+	// JSON CON LA INFO DE RIEGOS
 	case 2:
 
 		jObj.set("TCICLO", t_ciclo_global);						// Valor duracion de cada riego parcial (en segundos)					
 		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
 		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
 		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
-		jObj.set("PWMBOMBA", ledcRead(1));						// Valor actual PWM de la bomba
+		jObj.set("BOMBACUR", ledcRead(1));						// Valor actual PWM de la bomba
+		jObj.set("BOMBASET", fuerzabomba);						// Valor de configuracion de la fuerza de la bomba
 		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
 		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
 
 		break;
+
+
+	// JSON CON LA INFORMACION DE AMBIENTE
+	case 3:
+
+		jObj.set("EXTTEMP", LecturaAmbiente.temperature);	// Temperatura Ambiente
+		jObj.set("EXTHUM", LecturaAmbiente.humidity);		// Humedad Ambiente
+		jObj.set("TEMPT1", TempTierra1);					// Temperatura de la maceta 1
+		jObj.set("TEMPT2", TempTierra2);					// Temperatura de la maceta 1
+
+		break;
+
 
 	// SI ME LLAMAN CON OTRO PARAMETRO
 	default:
@@ -172,13 +217,15 @@ boolean RiegaMatico::SalvaConfig(){
 	File mificheroconfig_handler = SPIFFS.open(mificheroconfig, "w");
 
 	if (!mificheroconfig_handler) {
-		Serial.println("No se puede abrir el fichero de configuracion de mi proyecto");
+		Serial.println("No se puede abrir el fichero del Riegamatico");
 		return false;
 	}
 
-	if (mificheroconfig_handler.print(MiEstadoJson(1))){
+	if (mificheroconfig_handler.print(MiEstadoJson(2))){
 
+		Serial.println("Config del Riegamatico Salvada.");
 		return true;
+		
 
 	}
 
@@ -206,9 +253,16 @@ boolean RiegaMatico::LeeConfig(){
 			JsonObject& json = jsonBuffer.parseObject(buf.get());
 			if (json.success()) {
 
-				Serial.print("Configuracion de mi proyecto Leida: ");
+				Serial.print("Configuracion del Riegamatico Leida: ");
 				json.printTo(Serial);
 				Serial.println("");
+
+				// Dar valor a las variables desde el JSON de configuracion
+				t_ciclo_global = json.get<unsigned long>("TCICLO");
+				t_espera_parciales = json.get<unsigned long>("TPAUSA");
+				t_n_parciales = json.get<unsigned long>("NCICLOS");
+				fuerzabomba = json.get<int>("BOMBASET");
+
 				return true;
 
 			}
@@ -224,7 +278,6 @@ boolean RiegaMatico::LeeConfig(){
 	return false;
 
 }
-
 
 void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
 
@@ -250,13 +303,21 @@ void RiegaMatico::ConfigNumParciales(int n_parciales){
 
 }
 
+void RiegaMatico::ConfigPWMBomba(int n_fuerzabomba){
+
+	fuerzabomba = n_fuerzabomba;
+	HayQueSalvar = true;
+	this->MiRespondeComandos("BOMBASET",this->MiEstadoJson(2));
+
+}
+
 void RiegaMatico::MandaConfig(){
 
 	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
 	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
 	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
+	this->MiRespondeComandos("BOMBASET",this->MiEstadoJson(2));
 }
-
 
 void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
 
@@ -274,7 +335,6 @@ void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador d
 
 }
 
-
 void RiegaMatico::RiegoRun(){
 
 	// Si tengo activo el comando regar y la bomba esta parada o es el inicio del riego o estoy en una pausa 
@@ -291,7 +351,7 @@ void RiegaMatico::RiegoRun(){
 			horaultimoriego = ClienteNTP.getFormattedTime();
 
 			//digitalWrite(PINLED, HIGH);
-			ledcWrite(1,240);
+			ledcWrite(1,fuerzabomba);
 			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
@@ -304,7 +364,7 @@ void RiegaMatico::RiegoRun(){
 			t_n_parciales_count--;	
 
 			//digitalWrite(PINLED, HIGH);
-			ledcWrite(1,240);
+			ledcWrite(1,fuerzabomba);
 			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
 
 		}
@@ -333,21 +393,26 @@ void RiegaMatico::RiegoRun(){
 
 }
 
-
 void RiegaMatico::GestionCarga(){
 
 
-	// TODO: MEDIA DE LAS MEDIDAS
-
-
-
-	t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
-	delay(10);
 	
-	t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
-	
+	//t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
+	//t_vbatlectura = analogRead(PINVBAT);
+	//delay(10);
 
-	t_nivel = digitalRead(PINNIVEL);
+	float t_lecturas = 0;
+
+	for (int i = 1; i <= 10; i++){
+
+		t_lecturas = t_lecturas + analogRead(PINVBAT);
+		delay (10);
+
+	}
+	
+	//t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
+	t_vbateria =  (t_lecturas * 12.92f ) / (3440.0f * 10);
+	
 
 	
 	// CARGA
@@ -366,9 +431,48 @@ void RiegaMatico::GestionCarga(){
 
 	}
 
+
+	if (t_vbateria <= VBATEMERGENCIA){
+
+		Serial.println("Atencion, Bateria extremadamente baja");
+		this->Adormir(SleepModeApagado);
+
+	}
+
 }
 
+void RiegaMatico::LeeAmbiente(){
 
+	LecturaAmbiente = SensorAmbiente.getTempAndHumidity();
+	
+}
+
+void RiegaMatico::LeeTempTierra(){
+
+	// Que los sensores hagan las lecturas
+	MisTermometrosOnewire.requestTemperatures();
+	// Lo vamos a pasar a variables locales a ver si va bien (si da tiempo a la conversion o al menos lee la anterioi) para poder usarlas luego sin lios
+	TempTierra1 = MisTermometrosOnewire.getTempC(TempMaceta1);
+	TempTierra2 = MisTermometrosOnewire.getTempC(TempMaceta2);
+
+	//NOTA: Hay funciones para hacer verificaciones de si el dispositivo esta conectado o no para mejorar posibles fallos.
+
+}
+
+void RiegaMatico::Adormir(SleepModes modo){
+
+	switch (modo){
+
+		case SleepModeApagado:
+
+			Serial.println("Entrando en modo Deep Sleep");
+			esp_deep_sleep_start();		
+
+		break;
+
+	}
+
+}
 
 void RiegaMatico::Run() {
 	
@@ -380,10 +484,14 @@ void RiegaMatico::Run() {
 
 	}
 	
+	// Leer el sensor de Reserva de Nivel de Agua.
+	t_nivel = digitalRead(PINNIVEL);
+
 
 	this->RiegoRun();
-
-	
+	this->GestionCarga();
+	this->LeeAmbiente();
+	this->LeeTempTierra();
 	
 
 	// UpTime Minutos
@@ -431,5 +539,13 @@ void RiegaMatico::RunFast() {
 
 	// Actualizar Led
     LedEstado.Update();
+
+}
+
+void RiegaMatico::Begin(){
+
+	// Para inicializar los termometros de la tierra
+	MisTermometrosOnewire.begin();
+
 
 }
