@@ -91,6 +91,10 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	lcd.noBacklight();
 	lcd.off();
 
+	// Variables para el tiempo de carga
+	tstart_carga = millis();
+	tstop_carga = tstart_carga;
+
 }
 
 // Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
@@ -114,18 +118,17 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	case 1:
 
 		// Esto llena de objetos de tipo "pareja propiedad valor"
-		jObj.set("TIME", ClienteNTP.getFormattedTime());	// HORA
-		jObj.set("UPT", t_uptime);							// Uptime en segundos
-		jObj.set("HI", HardwareInfo);						// Info del Hardware
-		jObj.set("CS", ComOK);								// Info de la conexion WIFI y MQTT
-		jObj.set("RSSI", WiFi.RSSI());						// RSSI de la señal Wifi
-		jObj.set("ADCBAT", t_vbatlectura);					// Lectura del ADC Bateria
-		jObj.set("ADCCARG", t_vcarglectura);				// Lectura del ADC del Cargador
-		jObj.set("VBAT", t_vbateria);						// Tension de la Bateria
-		jObj.set("VCARG", t_vcargador);						// Tension del cargador
-		jObj.set("RESERVA", t_nivel);						// Estado del la reserva del deposito
-		jObj.set("CARG", cargando);							// Estado de la carga
-        jObj.set("RECW", reconexioneswifi);					// Numero de reconexiones Wifi
+		jObj.set("TIME", ClienteNTP.getFormattedTime());		// HORA
+		jObj.set("UPT", t_uptime);								// Uptime en segundos
+		jObj.set("HI", HardwareInfo);							// Info del Hardware
+		jObj.set("CS", ComOK);									// Info de la conexion WIFI y MQTT
+		jObj.set("RSSI", WiFi.RSSI());							// RSSI de la señal Wifi
+		jObj.set("VBAT", t_vbateria);							// Tension de la Bateria
+		jObj.set("VCARG", t_vcargador);							// Tension del cargador
+		jObj.set("TCARG", (tstop_carga - tstart_carga)/60000);	// Tiempo de ultima carga en minutos
+		jObj.set("RESERVA", t_nivel);							// Estado del la reserva del deposito
+		jObj.set("CARG", cargando);								// Estado de la carga
+        jObj.set("RECW", reconexioneswifi);						// Numero de reconexiones Wifi
 		
 		break;
 
@@ -393,16 +396,13 @@ void RiegaMatico::RiegoRun(){
 
 }
 
-void RiegaMatico::GestionCarga(){
-
+void RiegaMatico::GestionCarga(boolean fuerzacarga){
 
 	
-	//t_vbatlectura = adc1_get_raw(ADC1_CHANNEL_7);
-	//t_vbatlectura = analogRead(PINVBAT);
-	//delay(10);
-
+	// Paras almacenar varias lecturas	
 	float t_lecturas = 0;
 
+	// Bucle de 10 lecuras de VBATERIA
 	for (int i = 1; i <= 10; i++){
 
 		t_lecturas = t_lecturas + analogRead(PINVBAT);
@@ -410,34 +410,65 @@ void RiegaMatico::GestionCarga(){
 
 	}
 	
-	//t_vbateria =  (t_vbatlectura * 12.92f ) / 3440.0f;
+	// Dividir el bloque de lecturas entre 10 para la lectura OK
 	t_vbateria =  (t_lecturas * 12.92f ) / (3440.0f * 10);
 	
 
+	t_lecturas = 0;
+
+	// Bucle de 10 lecuras de VCARGA
+	for (int i = 1; i <= 10; i++){
+
+		t_lecturas = t_lecturas + analogRead(PINVCARGA);
+		delay (10);
+
+	}
 	
-	// CARGA
+	// Dividir el bloque de lecturas entre 10 para la lectura OK
+	t_vcargador =  (t_lecturas * 12.92f ) / (3440.0f * 10);
+	
+	
+	// CARGAR POR BATERIA BAJA
 	if (t_vbateria <= VCARGASTART && !cargando){
 
 		digitalWrite(PINCARGA,HIGH);
 		cargando = true;
+		tstart_carga = millis();
+
+	}
+
+	// CARGAR POR COMANDO FORZADO
+
+	if (fuerzacarga && !cargando){
+
+		digitalWrite(PINCARGA,HIGH);
+		cargando = true;
+		tstart_carga = millis();
+		MiRespondeComandos("CARGAR","CARGANDO");
 
 	}
 
 	
-	if (t_vbateria >= VCARGASTOP){
+	// Parar la carga
+	if (t_vbateria >= VCARGASTOP && (millis() - tstart_carga) > (CARGAMINTEMP*60000)){
 
 		digitalWrite(PINCARGA,LOW);
 		cargando = false;
+		tstop_carga = millis();
 
 	}
 
 
+	// Apagado de Emergencia si la tension cae por debajo del umbral establecido
 	if (t_vbateria <= VBATEMERGENCIA){
 
 		Serial.println("Atencion, Bateria extremadamente baja");
 		this->Adormir(SleepModeApagado);
 
 	}
+
+	// Ir actualizando la variable para informar de cuanto lleva cargando en la telemetria durante la carga
+	if (cargando){tstop_carga = millis();}
 
 }
 
@@ -489,7 +520,7 @@ void RiegaMatico::Run() {
 
 
 	this->RiegoRun();
-	this->GestionCarga();
+	this->GestionCarga(false);
 	this->LeeAmbiente();
 	this->LeeTempTierra();
 	

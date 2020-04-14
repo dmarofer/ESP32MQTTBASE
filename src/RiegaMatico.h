@@ -24,10 +24,12 @@ private:
 	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
 	int t_n_parciales = 6;						// Numero total de parciales del riego
 	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
-	uint16_t t_vbatlectura;						// Lectura del ADC de la bateria
-	uint16_t t_vcarglectura;					// Lectura del ADC del cargador
+	//uint16_t t_vbatlectura;						// Lectura del ADC de la bateria
+	//uint16_t t_vcarglectura;					// Lectura del ADC del cargador
 	float t_vbateria;							// Tension en la bateria.
 	float t_vcargador;							// Tension en el cargador.
+	unsigned long tstart_carga;					// Para almacenar el millis del tiempo en el que arranca la carga
+	unsigned long tstop_carga;					// Para almacenar el millis del tiempo que para la carga
 	boolean t_nivel;							// Estado de la reserva de agua.
 	boolean cargando = false;					// Flag para saber si esta cargando
 	int t_flujotick;							// Contador para el medidor de flujo
@@ -45,8 +47,6 @@ private:
 	static RiegaMatico* sRiegaMatico;			// Una objeto para albergar puntero a la instancia del riegamatico y manipularla desde dentro desde la interrupcion
 
 	void RiegoRun();							// El algoritmo que controla el ciclo de riego y la bomba
-
-	void GestionCarga();						// Algoritmo que gestiona la carga de la bateria
 
 	void LeeAmbiente();							// Funcion de lactura del DHT11
 
@@ -95,6 +95,8 @@ public:
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
 	void ConfigPWMBomba(int n_fuerzabomba);							// Metodo para configurar el numero de parciales. 
 	void MandaConfig();												// Metodo para enviar el JSON de la configuracion a peticion
+
+	void GestionCarga(boolean fuerzacarga);							// Algoritmo que gestiona la carga de la bateria. Parametro para disparar la carga (1)
 
 	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
 

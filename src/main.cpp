@@ -469,6 +469,12 @@ void TaskProcesaComandos ( void * parameter ){
 
 					}
 
+					else if (COMANDO == "CARGAR"){
+
+						MiRiegaMatico.GestionCarga(true);
+
+					}
+
 
 					// Y Ya si no es de ninguno de estos ....
 
