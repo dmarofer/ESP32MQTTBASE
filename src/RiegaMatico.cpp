@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include "driver/adc.h"
 #include <Configuracion.h>
-#include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
+#include <ArduinoJson.h>				// OJO: Version 5. La 6 es totalmente distinta
 #include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
@@ -95,6 +95,9 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	tstart_carga = millis();
 	tstop_carga = tstart_carga;
 
+	// Para el tiempo en bateria de emergencia
+	tvbat_low = millis();
+	
 }
 
 // Pasar a esta clase la funcion callback de fuera. Me la pasan desde el programa con el metodo SetRespondeComandoCallback
@@ -182,9 +185,21 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 void RiegaMatico::Regar(){
 
-	ARegar = true;
-	t_flujotick = 0;
-	t_n_parciales_count = t_n_parciales;
+	if (t_vbateria >= VBATMINRIEGO){
+
+		ARegar = true;
+		t_flujotick = 0;
+		t_n_parciales_count = t_n_parciales;
+
+	}
+	
+	else {
+
+		riegoerror = true;
+		this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+		Serial.println("Bateria demasiado baja para regar, cancelando riego.");
+
+	}
 		
 }
 
@@ -402,6 +417,7 @@ void RiegaMatico::GestionCarga(boolean fuerzacarga){
 	// Paras almacenar varias lecturas	
 	float t_lecturas = 0;
 
+
 	// Bucle de 10 lecuras de VBATERIA
 	for (int i = 1; i <= 10; i++){
 
@@ -410,7 +426,7 @@ void RiegaMatico::GestionCarga(boolean fuerzacarga){
 
 	}
 	
-	// Dividir el bloque de lecturas entre 10 para la lectura OK
+	// Dividir el bloque de lecturas entre 10 y convertir la medida segun dicisor para la lectura OK
 	t_vbateria =  (t_lecturas * 12.92f ) / (3440.0f * 10);
 	
 
@@ -425,7 +441,7 @@ void RiegaMatico::GestionCarga(boolean fuerzacarga){
 	}
 	
 	// Dividir el bloque de lecturas entre 10 para la lectura OK
-	t_vcargador =  (t_lecturas * 12.92f ) / (3440.0f * 10);
+	t_vcargador =  (t_lecturas * 17.55f ) / (3440.0f * 10);
 	
 	
 	// CARGAR POR BATERIA BAJA
@@ -459,13 +475,25 @@ void RiegaMatico::GestionCarga(boolean fuerzacarga){
 	}
 
 
-	// Apagado de Emergencia si la tension cae por debajo del umbral establecido
+	// Apagado de Emergencia si la tension cae por debajo del umbral establecido durante un tiempo X
 	if (t_vbateria <= VBATEMERGENCIA){
 
-		Serial.println("Atencion, Bateria extremadamente baja");
-		this->Adormir(SleepModeApagado);
+		if ( (millis() - tvbat_low) > TBATEMERGENCIA*1000 ){
+
+			Serial.println("Atencion, Bateria extremadamente baja, hibernando el sistema.");
+			this->Adormir(SleepModeApagado);
+
+		}
+		
+	}
+
+	else {
+
+		tvbat_low = millis();
 
 	}
+	
+
 
 	// Ir actualizando la variable para informar de cuanto lleva cargando en la telemetria durante la carga
 	if (cargando){tstop_carga = millis();}
@@ -496,6 +524,9 @@ void RiegaMatico::Adormir(SleepModes modo){
 
 		case SleepModeApagado:
 
+			lcd.noBacklight();
+			lcd.off();
+			esp_sleep_enable_timer_wakeup(THIBERNADO * (unsigned long long)60000000);
 			Serial.println("Entrando en modo Deep Sleep");
 			esp_deep_sleep_start();		
 

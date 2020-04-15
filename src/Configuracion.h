@@ -16,11 +16,15 @@
 #define PINLED 5
 
 // CARGA DE LA BATERIA
-#define VCARGASTART 11.80           // Voltage para iniciar la carga
+#define VCARGASTART 12.80           // Voltage para iniciar la carga
 #define VCARGASTOP 14.20            // Voltage para parar la carga
-#define VBATEMERGENCIA 11.60        // Tension para hibernacion. -1 o negativos deshabilitada
-//#define VBATEMERGENCIA -1        // Tension para hibernacion. -1 o negativos deshabilitada
+#define VBATMINRIEGO 12.50          // Voltage minimo de la bateria para regar
+#define VBATEMERGENCIA 12.00        // Tension para hibernacion. -1 o negativos deshabilitada
+#define TBATEMERGENCIA 60           // Tiempo en bateria de emergencia para hibernar (segundos)
+#define THIBERNADO  60              // Tiempo para despertar y comprobar la bateria (minutos)
+                                    // El timer del copro es gigantesto(64 bits). Se puede hibernar 584.942 años (2^64 uS o sea 18 trillones y pico)
 #define CARGAMINTEMP 15             // Tiempo minimo de carga para evitar el pico de tension cuando arranca, en minutos
+
 
 // FLUJO
 #define TICKSPORLITRO 270			// Segun lo que leo podria ser esto, ya lo calibraremos a ver ....

@@ -24,10 +24,9 @@ private:
 	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
 	int t_n_parciales = 6;						// Numero total de parciales del riego
 	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
-	//uint16_t t_vbatlectura;						// Lectura del ADC de la bateria
-	//uint16_t t_vcarglectura;					// Lectura del ADC del cargador
 	float t_vbateria;							// Tension en la bateria.
 	float t_vcargador;							// Tension en el cargador.
+	unsigned long tvbat_low;					// Para almacenar el tiempo que llevamos en bateria de emergencia
 	unsigned long tstart_carga;					// Para almacenar el millis del tiempo en el que arranca la carga
 	unsigned long tstop_carga;					// Para almacenar el millis del tiempo que para la carga
 	boolean t_nivel;							// Estado de la reserva de agua.
