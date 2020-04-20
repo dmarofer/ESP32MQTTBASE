@@ -16,7 +16,7 @@
 #define PINLED 5
 
 // CARGA DE LA BATERIA
-#define VCARGASTART 12.80           // Voltage para iniciar la carga
+#define VCARGASTART 12.50           // Voltage para iniciar la carga
 #define VCARGASTOP 14.20            // Voltage para parar la carga
 #define VBATMINRIEGO 12.50          // Voltage minimo de la bateria para regar
 #define VBATEMERGENCIA 12.00        // Tension para hibernacion. -1 o negativos deshabilitada
