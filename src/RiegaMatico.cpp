@@ -80,7 +80,7 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 
 	// Contador de flujo
 	t_flujotick = 0;
-	pinMode(PINFLUJO, INPUT_PULLUP);
+	pinMode(PINFLUJO, INPUT_PULLDOWN);
 	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
 
 	// Sensor Ambiente
@@ -144,7 +144,8 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
 		jObj.set("BOMBACUR", ledcRead(1));						// Valor actual PWM de la bomba
 		jObj.set("BOMBASET", fuerzabomba);						// Valor de configuracion de la fuerza de la bomba
-		jObj.set("FLUJO",(float) t_flujotick / TICKSPORLITRO);	// Valor del medidor de flujo (ultimo riego)
+		jObj.set("FLUJO",flujoactual);							// flujo en ml/s
+		jObj.set("LITROS",(float)t_flujotick*1000/TICKSPORLITRO);// Agua Ultimo riego en ML 
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
 		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
@@ -349,9 +350,48 @@ void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterr
 
 void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador de flujo
 
-	t_flujotick++;
+	if (this->ARegar){
+
+		t_flujotick++;
+
+	}
+	
 
 }
+
+void RiegaMatico::CalculaFlujo(){
+
+	
+	if (b_activa){
+
+		unsigned long tiempo_diff = millis() - tflujo_agua_previo;
+				
+
+		if (tiempo_diff > 0 && tiempo_diff < 1500) {
+
+			flujoactual = ((t_flujotick - t_flujotick_previo)*1000/tiempo_diff)*1000/TICKSPORLITRO;
+		
+		}
+
+		else {
+
+			flujoactual = 0;
+
+		}
+
+		tflujo_agua_previo = millis();
+		t_flujotick_previo = t_flujotick;
+
+	}
+
+	else {
+
+		flujoactual = 0;
+
+	}
+
+}
+
 
 void RiegaMatico::RiegoRun(){
 
@@ -554,7 +594,7 @@ void RiegaMatico::Run() {
 	this->GestionCarga(false);
 	this->LeeAmbiente();
 	this->LeeTempTierra();
-	
+	this->CalculaFlujo();
 
 	// UpTime Minutos
 	t_uptime = esp_timer_get_time() / 1000000;

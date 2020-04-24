@@ -1,0 +1,123 @@
+EESchema Schematic File Version 4
+EELAYER 30 0
+EELAYER END
+$Descr A4 11693 8268
+encoding utf-8
+Sheet 1 1
+Title ""
+Date ""
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L Driver_Motor:Pololu_Breakout_A4988 A1
+U 1 1 5EA3273B
+P 7050 1950
+F 0 "A1" H 7100 2831 50  0000 C CNN
+F 1 "Pololu_Breakout_A4988" H 7100 2740 50  0000 C CNN
+F 2 "Module:Pololu_Breakout-16_15.2x20.3mm" H 7325 1200 50  0001 L CNN
+F 3 "https://www.pololu.com/product/2980/pictures" H 7150 1650 50  0001 C CNN
+	1    7050 1950
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x04 J2
+U 1 1 5EA35C11
+P 8500 1950
+F 0 "J2" H 8580 1942 50  0000 L CNN
+F 1 "MOTOR" H 8580 1851 50  0000 L CNN
+F 2 "" H 8500 1950 50  0001 C CNN
+F 3 "~" H 8500 1950 50  0001 C CNN
+	1    8500 1950
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x02 J3
+U 1 1 5EA365A6
+P 8450 3550
+F 0 "J3" H 8530 3542 50  0000 L CNN
+F 1 "END SWITCH" H 8530 3451 50  0000 L CNN
+F 2 "" H 8450 3550 50  0001 C CNN
+F 3 "~" H 8450 3550 50  0001 C CNN
+	1    8450 3550
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x02 J4
+U 1 1 5EA36ED5
+P 8450 3950
+F 0 "J4" H 8530 3942 50  0000 L CNN
+F 1 "LED" H 8530 3851 50  0000 L CNN
+F 2 "" H 8450 3950 50  0001 C CNN
+F 3 "~" H 8450 3950 50  0001 C CNN
+	1    8450 3950
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x05 J5
+U 1 1 5EA37798
+P 8450 4550
+F 0 "J5" H 8530 4592 50  0000 L CNN
+F 1 "ENCODER" H 8530 4501 50  0000 L CNN
+F 2 "" H 8450 4550 50  0001 C CNN
+F 3 "~" H 8450 4550 50  0001 C CNN
+	1    8450 4550
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+5V #PWR?
+U 1 1 5EA44FB3
+P 2800 950
+F 0 "#PWR?" H 2800 800 50  0001 C CNN
+F 1 "+5V" H 2815 1123 50  0000 C CNN
+F 2 "" H 2800 950 50  0001 C CNN
+F 3 "" H 2800 950 50  0001 C CNN
+	1    2800 950 
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x05 J1
+U 1 1 5EA46BDF
+P 1050 1650
+F 0 "J1" H 968 1225 50  0000 C CNN
+F 1 "MCU" H 968 1316 50  0000 C CNN
+F 2 "" H 1050 1650 50  0001 C CNN
+F 3 "~" H 1050 1650 50  0001 C CNN
+	1    1050 1650
+	-1   0    0    1   
+$EndComp
+$Comp
+L power:+12V #PWR?
+U 1 1 5EA47C82
+P 2250 950
+F 0 "#PWR?" H 2250 800 50  0001 C CNN
+F 1 "+12V" H 2265 1123 50  0000 C CNN
+F 2 "" H 2250 950 50  0001 C CNN
+F 3 "" H 2250 950 50  0001 C CNN
+	1    2250 950 
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+12V #PWR?
+U 1 1 5EA48284
+P 6350 950
+F 0 "#PWR?" H 6350 800 50  0001 C CNN
+F 1 "+12V" H 6365 1123 50  0000 C CNN
+F 2 "" H 6350 950 50  0001 C CNN
+F 3 "" H 6350 950 50  0001 C CNN
+	1    6350 950 
+	1    0    0    -1  
+$EndComp
+Wire Bus Line
+	1250 1450 2250 1450
+Wire Bus Line
+	2250 1450 2250 950 
+Wire Bus Line
+	1250 1550 2800 1550
+Wire Bus Line
+	2800 1550 2800 950 
+$EndSCHEMATC

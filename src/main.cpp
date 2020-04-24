@@ -157,7 +157,7 @@ void onMqttConnect(bool sessionPresent) {
 		Serial.println("Publicado Online en Topic LWT: " + (MiConfig.teleTopic + "/LWT"));
 		// Mandar la config a los topic stat correspondietnes para actualizar los controles del HA
 		MiRiegaMatico.MandaConfig();
-		
+				
 		lwtflag = true;
 
 	}
@@ -287,6 +287,19 @@ void MandaTelemetria() {
 			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
 			
 			
+			// Telemetria 2 rehusando los objetos anterioires
+			t_topic = MiConfig.teleTopic + "/INFO2";
+
+			ObjJson.set("MQTTT",t_topic);
+			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(2));
+			
+			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
+			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
+			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
+			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
+
+
 			// Telemetria 3 rehusando los objetos anterioires
 			t_topic = MiConfig.teleTopic + "/INFO3";
 
@@ -660,23 +673,35 @@ void TaskRiegaMaticoRun( void * parameter ){
 
 		MiRiegaMatico.Run();
 
+		// Si estamos regando mandar la telemetria cada segundo
+		if (MiRiegaMatico.ARegar){
+
+			MandaTelemetria();
+
+		}
+
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
 
 }
 
-// tarea para el envio periodico de la telemetria
+// tarea para el envio periodico de la telemetria (envio lento)
 void TaskMandaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 10000;
+	const TickType_t xFrequency = 20000;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 
 	while(true){
 
-		MandaTelemetria();
+		if (!MiRiegaMatico.ARegar){
+
+			MandaTelemetria();
+
+		}
+
 		
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 

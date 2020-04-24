@@ -16,7 +16,6 @@ private:
 	// Variables Privadas
 	unsigned long t_uptime;						// Para el tiempo que llevamos en marcha
 	bool HayQueSalvar = false;					// Flag para saber si hay algo que salvar en la config.
-	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
 	bool b_activa = false;						// Flag para saber si estamos regando (bomba activa)
 	String mificheroconfig;						// Para almacenar el nombre del fichero de configuracion. Nos la pasa el constructor.
 	unsigned long t_ciclo_global = 20;			// Tiempo de riego de cada parcial (seg).
@@ -31,7 +30,10 @@ private:
 	unsigned long tstop_carga;					// Para almacenar el millis del tiempo que para la carga
 	boolean t_nivel;							// Estado de la reserva de agua.
 	boolean cargando = false;					// Flag para saber si esta cargando
-	int t_flujotick;							// Contador para el medidor de flujo
+	int t_flujotick = 0;						// Contador para el medidor de flujo
+	unsigned long tflujo_agua_previo = 0;		// para almacenar el millis de la ultima medicion para calcular el flujo
+	int t_flujotick_previo = 0;					// La ultima medicion de flujo correspondiente a ese tiempo
+	int flujoactual = 0;						// Para almacenar el calculo del flujo instantaneo
 	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
 	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
     int fuerzabomba = 240;						// PWM de la bomba
@@ -65,7 +67,9 @@ public:
 		//SleepModeActivo = 3
 
 	};
-	
+
+	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
+
 	// Constructor
 	RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP);	// Constructor. Se le pasa el nombre de fichero de config y una referencia a algunos objetos
 	~RiegaMatico() {};												    // Destructor (Destruye el objeto, o sea, lo borra de la memoria)
@@ -98,6 +102,8 @@ public:
 	void GestionCarga(boolean fuerzacarga);							// Algoritmo que gestiona la carga de la bateria. Parametro para disparar la carga (1)
 
 	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	
+
+	void CalculaFlujo();											// Para calcular el flujo en ml por segundo
 
 	void Adormir(SleepModes modo);									// Funcion para el modo Sleep
 
