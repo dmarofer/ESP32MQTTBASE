@@ -17,3 +17,13 @@ https://github.com/dmarofer/RIEGAMATICO_MQTT
 https://bilbaomakers.org/
 
 Licencia: GNU General Public License v3.0 ( mas info en GitHub )
+
+
+## NOTAS DEL BRANCH
+
+- Afinal el flujo e implementar riego por volumen
+
+- Con Aire me suele dar entre 450 y 1000 ml/s
+- Con agua suele andar por 40 - 50 ml/s
+
+O sea si el fujo esta por encima de 100 es Aire. Cuando esta por debajo de 100 parece que mide bastante bien.
