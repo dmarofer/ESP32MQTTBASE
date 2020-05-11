@@ -68,7 +68,7 @@ WiFiUDP UdpNtp;
 
 // Manejador del NTP. Cliente red, servidor, offset zona horaria, intervalo de actualizacion.
 // FALTA IMPLEMENTAR ALGO PARA CONFIGURAR LA ZONA HORARIA
-static NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 3600);
+static NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 600000);
 
 // Para el sensor de temperatura de la CPU. Definir aqui asi necesario es por no estar en core Arduino.
 extern "C" {uint8_t temprature_sens_read();}
@@ -332,13 +332,19 @@ void TaskGestionRed ( void * parameter ) {
 
 	while(true){
 
-		if (WiFi.isConnected() && !ClienteMQTT.connected()){
+		if (WiFi.isConnected()){
 			
-			Serial.println("Conectando al Broker MQTT");
-			ClienteMQTT.connect();
-			
+			if (!ClienteMQTT.connected()){
+
+				Serial.println("Conectando al Broker MQTT");
+				ClienteMQTT.connect();
+
+			}
+
+			ClienteNTP.update();
+
 		}
-		
+
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
