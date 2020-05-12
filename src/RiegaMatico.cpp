@@ -370,6 +370,7 @@ void RiegaMatico::CalculaFlujo(){
 		if (tiempo_diff > 0 && tiempo_diff < 1500) {
 
 			flujoactual = ((t_flujotick - t_flujotick_previo)*1000/tiempo_diff)*1000/TICKSPORLITRO;
+			if (flujoactual > 100) { flujoactual = 0; }
 		
 		}
 
@@ -391,7 +392,6 @@ void RiegaMatico::CalculaFlujo(){
 	}
 
 }
-
 
 void RiegaMatico::RiegoRun(){
 
@@ -576,6 +576,7 @@ void RiegaMatico::Adormir(SleepModes modo){
 
 }
 
+// Ejecutar cada 1s
 void RiegaMatico::Run() {
 	
 	// Si hay que salvar, salvar (facil no?)
@@ -595,6 +596,7 @@ void RiegaMatico::Run() {
 	this->LeeAmbiente();
 	this->LeeTempTierra();
 	this->CalculaFlujo();
+	
 
 	// UpTime Minutos
 	t_uptime = esp_timer_get_time() / 1000000;
@@ -637,12 +639,15 @@ void RiegaMatico::Run() {
 
 }
 
+// Ejecutar en el loop o lo mas rapido posible.
 void RiegaMatico::RunFast() {
 
 	// Actualizar Led
     LedEstado.Update();
+	
 
 }
+
 
 void RiegaMatico::Begin(){
 
