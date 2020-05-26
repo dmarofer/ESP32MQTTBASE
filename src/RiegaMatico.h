@@ -30,8 +30,8 @@ private:
 	unsigned long tstop_carga;					// Para almacenar el millis del tiempo que para la carga
 	boolean t_nivel;							// Estado de la reserva de agua.
 	boolean cargando = false;					// Flag para saber si esta cargando
-	int t_flujotick = 0;						// Contador para el medidor de flujo
-	unsigned long tflujo_agua_previo = 0;		// para almacenar el millis de la ultima medicion para calcular el flujo
+	unsigned long t_flujotick = 0;				// Contador para el medidor de flujo
+	unsigned long millis_previo = 0;			// para almacenar el millis de la ultima medicion para calcular el flujo
 	int t_flujotick_previo = 0;					// La ultima medicion de flujo correspondiente a ese tiempo
 	int flujoactual = 0;						// Para almacenar el calculo del flujo instantaneo
 	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)

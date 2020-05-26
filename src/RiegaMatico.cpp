@@ -80,8 +80,8 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 
 	// Contador de flujo
 	t_flujotick = 0;
-	pinMode(PINFLUJO, INPUT_PULLDOWN);
-	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
+	pinMode(PINFLUJO, INPUT_PULLUP);
+	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,RISING);
 
 	// Sensor Ambiente
 	SensorAmbiente.setup(PINAMBIENTE, DHTesp::DHT11);
@@ -190,6 +190,7 @@ void RiegaMatico::Regar(){
 
 		ARegar = true;
 		t_flujotick = 0;
+		t_flujotick_previo = 0;
 		t_n_parciales_count = t_n_parciales;
 
 	}
@@ -363,31 +364,25 @@ void RiegaMatico::CalculaFlujo(){
 
 	
 	if (b_activa){
-
-		unsigned long tiempo_diff = millis() - tflujo_agua_previo;
+		
 				
+		if (millis_previo != 0) {
 
-		if (tiempo_diff > 0 && tiempo_diff < 1500) {
-
+			unsigned long tiempo_diff = millis() - millis_previo;
 			flujoactual = ((t_flujotick - t_flujotick_previo)*1000/tiempo_diff)*1000/TICKSPORLITRO;
-			if (flujoactual > 100) { flujoactual = 0; }
+			t_flujotick_previo = t_flujotick;
+			millis_previo = millis();
+			//if (flujoactual > 100) { flujoactual = 0; }
+			
 		
 		}
-
-		else {
-
-			flujoactual = 0;
-
-		}
-
-		tflujo_agua_previo = millis();
-		t_flujotick_previo = t_flujotick;
-
+		
 	}
 
 	else {
 
 		flujoactual = 0;
+		millis_previo = 0;
 
 	}
 
