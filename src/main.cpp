@@ -232,22 +232,12 @@ void TaskGestionRed ( void * parameter ) {
 
 	while(true){
 
-
 		if (WiFi.isConnected() && !MisComunicaciones.IsConnected()){
 			
 			MisComunicaciones.Conectar();
 			
-			if (!ClienteMQTT.connected()){
-
-				Serial.println("Conectando al Broker MQTT");
-				ClienteMQTT.connect();
-
-			}
-
-			ClienteNTP.update();
-
 		}
-
+		
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}

@@ -33,6 +33,7 @@ private:
 
 	unsigned int t_flujotick = 0;				// Contador para el medidor de flujo
 	unsigned long tflujo_agua_previo = 0;		// para almacenar el millis de la ultima medicion para calcular el flujo
+	unsigned long millis_previo = 0;			// para almacenar el millis de la ultima medicion para calcular el flujo
 	unsigned int t_flujotick_previo = 0;		// La ultima medicion de flujo correspondiente a ese tiempo
 	unsigned int flujoactual = 0;			    // Para almacenar el calculo del flujo instantaneo
 
