@@ -81,7 +81,8 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	// Contador de flujo
 	t_flujotick = 0;
 	pinMode(PINFLUJO, INPUT_PULLUP);
-	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,RISING);
+	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
+
 
 	// Sensor Ambiente
 	SensorAmbiente.setup(PINAMBIENTE, DHTesp::DHT11);
@@ -146,6 +147,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("BOMBASET", fuerzabomba);						// Valor de configuracion de la fuerza de la bomba
 		jObj.set("FLUJO",flujoactual);							// flujo en ml/s
 		jObj.set("LITROS",(float)t_flujotick*1000/TICKSPORLITRO);// Agua Ultimo riego en ML 
+		jObj.set("TICKS",t_flujotick);							// Ticks del medidor de flujo
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
 		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
@@ -360,23 +362,36 @@ void RiegaMatico::FujoTick(){				// Funcion Publica que incremanta el contador d
 
 }
 
+// Se lanza aqui en el run, que se lanza a su vez a traves de Task cada 1000ms
 void RiegaMatico::CalculaFlujo(){
 
 	
 	if (b_activa){
-		
-				
-		if (millis_previo != 0) {
 
-			unsigned long tiempo_diff = millis() - millis_previo;
-			flujoactual = ((t_flujotick - t_flujotick_previo)*1000/tiempo_diff)*1000/TICKSPORLITRO;
-			t_flujotick_previo = t_flujotick;
-			millis_previo = millis();
-			//if (flujoactual > 100) { flujoactual = 0; }
-			
+
+
+		// Sacar la diferencia de tiempo entre la anterior medicion y la actual
+		unsigned long tiempo_diff = millis() - tflujo_agua_previo;
+				
+		// Si esta dentro de un rango "normal" hacer el calculo
+		if (tiempo_diff > 0 && tiempo_diff < 1500) {
+
+			// Calcular
+			flujoactual = ((t_flujotick - t_flujotick_previo)*1000*1000)/(tiempo_diff*TICKSPORLITRO);
 		
 		}
-		
+
+		// Si no el flujo a cero
+		else {
+
+			flujoactual = 0;
+
+		}
+
+		// Almacenar los valores actuales para la siguiente vez que se calcule y poder hacer las restas, el del tiempo y el numero de ticks
+		tflujo_agua_previo = millis();
+		t_flujotick_previo = t_flujotick;
+
 	}
 
 	else {

@@ -21,8 +21,8 @@ private:
 	unsigned long t_ciclo_global = 20;			// Tiempo de riego de cada parcial (seg).
 	unsigned long t_espera_parciales = 60;		// Tiempo de espera entre parciales (seg).
 	unsigned long t_init_riego;					// Para almacenar el millis del inicio del riego.
-	int t_n_parciales = 6;						// Numero total de parciales del riego
-	int t_n_parciales_count = 0;				// Para la cuenta de cuantos parciales me quedan.
+	unsigned int t_n_parciales = 6;				// Numero total de parciales del riego
+	unsigned int t_n_parciales_count = 0;		// Para la cuenta de cuantos parciales me quedan.
 	float t_vbateria;							// Tension en la bateria.
 	float t_vcargador;							// Tension en el cargador.
 	unsigned long tvbat_low;					// Para almacenar el tiempo que llevamos en bateria de emergencia
@@ -30,13 +30,15 @@ private:
 	unsigned long tstop_carga;					// Para almacenar el millis del tiempo que para la carga
 	boolean t_nivel;							// Estado de la reserva de agua.
 	boolean cargando = false;					// Flag para saber si esta cargando
-	unsigned long t_flujotick = 0;				// Contador para el medidor de flujo
-	unsigned long millis_previo = 0;			// para almacenar el millis de la ultima medicion para calcular el flujo
-	int t_flujotick_previo = 0;					// La ultima medicion de flujo correspondiente a ese tiempo
-	int flujoactual = 0;						// Para almacenar el calculo del flujo instantaneo
+
+	unsigned int t_flujotick = 0;				// Contador para el medidor de flujo
+	unsigned long tflujo_agua_previo = 0;		// para almacenar el millis de la ultima medicion para calcular el flujo
+	unsigned int t_flujotick_previo = 0;		// La ultima medicion de flujo correspondiente a ese tiempo
+	unsigned int flujoactual = 0;			    // Para almacenar el calculo del flujo instantaneo
+
 	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
 	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
-    int fuerzabomba = 240;						// PWM de la bomba
+    unsigned int fuerzabomba = 240;				// PWM de la bomba
 	float TempTierra1;							// Temperatura Tierra 1
 	float TempTierra2;							// Temperatura Tierra 2
     	
