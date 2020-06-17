@@ -27,28 +27,17 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 
 #include <ConfigCom.h>					// La configuracion de las comunicaciones
 #include <RiegaMatico.h>				// La clase RiegaMatico
-#include <AsyncMqttClient.h>			// Vamos a probar esta que es Asincrona: https://github.com/marvinroger/async-mqtt-client
 #include <FS.h>							// Libreria Sistema de Ficheros
-#include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
 #include <string>						// Para el manejo de cadenas
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
-
-#pragma endregion
-
-#pragma region Constantes y configuracion. Modificable aqui por el usuario
-
-// Para el periodo de repeticon de la tarea gestionada por el timer (en microsegundos);
-static const uint64_t TIMER_TICK_US = 200;
+#include <Comunicaciones.h>
 
 #pragma endregion
 
 #pragma region Objetos
-
-// Para la conexion MQTT
-AsyncMqttClient ClienteMQTT;
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
 TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
@@ -57,8 +46,8 @@ TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskCom
 QueueHandle_t ColaComandos,ColaRespuestas;
 
 // Timer Run
-hw_timer_t * timer_stp = NULL;
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+//hw_timer_t * timer_stp = NULL;
+//portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 
 // Flag para el estado del sistema de ficheros
 boolean SPIFFStatus = false;
@@ -76,13 +65,16 @@ extern "C" {uint8_t temprature_sens_read();}
 // Objeto de la configuracion en fichero
 ConfigCom MiConfig(FICHERO_CONFIG_COM);
 
+// Para las Comunicaciones
+Comunicaciones MisComunicaciones = Comunicaciones();
+
 // Objeto riegamtico
 RiegaMatico* RiegaMatico::sRiegaMatico	 = 0;						// Instancia vacia de la clase (reserva de mem)
 RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 
 #pragma endregion
 
-#pragma region Funciones de gestion de las conexiones Wifi
+#pragma region Funciones de Eventos y Telemetria
 
 // Funcion ante un evento de la wifi
 void WiFiEventCallBack(WiFiEvent_t event) {
@@ -99,6 +91,7 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 			ArduinoOTA.begin();
 			Serial.println("Proceso OTA arrancado.");
 			ClienteNTP.begin();
+			MisComunicaciones.Conectar();
 			MiRiegaMatico.reconexioneswifi ++;
 
 			if (ClienteNTP.update()){
@@ -117,6 +110,7 @@ void WiFiEventCallBack(WiFiEvent_t event) {
     	case SYSTEM_EVENT_STA_DISCONNECTED:
         	
 			//Serial.println("Conexion WiFi: Desconetado");
+
         	break;
 		default:
 			break;
@@ -125,121 +119,6 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 		
 }
 
-#pragma endregion
-
-#pragma region Funciones de gestion de las conexiones MQTT
-
-// Manejador del evento de conexion al MQTT
-void onMqttConnect(bool sessionPresent) {
-
-	Serial.println("Conexion MQTT: Conectado");
-	
-	bool susflag = false;
-	bool lwtflag = false;
-	
-	// Suscribirse al topic de Entrada de Comandos
-	if (ClienteMQTT.subscribe(MiConfig.cmndTopic.c_str(), 2)) {
-
-		// Si suscrito correctamente
-		Serial.println("Suscrito al topic " + MiConfig.cmndTopic);
-
-		susflag = true;				
-
-	}
-		
-	else { Serial.println("Error Suscribiendome al topic " + MiConfig.cmndTopic); }
-
-	
-	// Publicar un Online en el LWT
-	if (ClienteMQTT.publish((MiConfig.teleTopic + "/LWT").c_str(), 2,true,"Online")){
-
-		// Si llegamos hasta aqui es estado de las comunicaciones con WIFI y MQTT es OK
-		Serial.println("Publicado Online en Topic LWT: " + (MiConfig.teleTopic + "/LWT"));
-		// Mandar la config a los topic stat correspondietnes para actualizar los controles del HA
-		MiRiegaMatico.MandaConfig();
-				
-		lwtflag = true;
-
-	}
-
-
-	if (!susflag || !lwtflag){
-
-		// Si falla la suscripcion o el envio del Online malo kaka. Me desconecto para repetir el proceso.
-		ClienteMQTT.disconnect(false);
-
-	}
-
-	else{
-
-		// Si todo ha ido bien, proceso de inicio terminado.
-		MiRiegaMatico.ComOK = true;
-		Serial.print("** ");
-		Serial.print(ClienteNTP.getFormattedTime());
-		Serial.println(" - SISTEMA INICIADO CORRECTAMENTE **");
-		
-	}
-
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  
-	Serial.println("Conexion MQTT: Desconectado.");
-
-}
-
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  
-	String s_topic = String(topic);
-
-		// Para que no casque si no viene payload. Asi todo OK al gestor de comandos le llega vacio como debe ser, el JSON lo pone bien.
-		if (payload == NULL){
-
-			payload = "NULL";
-
-		}
-	
-		// Lo que viene en el char* payload viene de un buffer que trae KAKA, hay que limpiarlo (para eso nos pasan len y tal)
-		char c_payload[len+1]; 										// Array para el payload y un hueco mas para el NULL del final
-		strlcpy(c_payload, payload, len+1); 			// Copiar del payload el tamaño justo. strcopy pone al final un NULL
-		
-		// Y ahora lo pasamos a String que esta limpito
-		String s_payload = String(c_payload);
-
-		// Sacamos el prefijo del topic, o sea lo que hay delante de la primera /
-		int Indice1 = s_topic.indexOf("/");
-		String Prefijo = s_topic.substring(0, Indice1);
-		
-		// Si el prefijo es cmnd se lo mandamos al manejador de comandos
-		if (Prefijo == "cmnd") { 
-
-			// Sacamos el "COMANDO" del topic, o sea lo que hay detras de la ultima /
-			int Indice2 = s_topic.lastIndexOf("/");
-			String Comando = s_topic.substring(Indice2 + 1);
-
-			DynamicJsonBuffer jsonBuffer;
-			JsonObject& ObjJson = jsonBuffer.createObject();
-			ObjJson.set("COMANDO",Comando);
-			ObjJson.set("PAYLOAD",s_payload);
-
-			char JSONmessageBuffer[100];
-			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-			//Serial.println(String(ObjJson.measureLength()));
-
-			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSend(ColaComandos, &JSONmessageBuffer, 0);
-			
-		}
-
-	//}
-
-}
-
-void onMqttPublish(uint16_t packetId) {
-  
-	// Al publicar no hacemos nada de momento.
-
-}
 
 // Manda a la cola de respuestas el mensaje de respuesta. Esta funcion la uso como CALLBACK para el objeto RiegaMatico
 void MandaRespuesta(String comando, String payload) {
@@ -260,60 +139,81 @@ void MandaRespuesta(String comando, String payload) {
 			char JSONmessageBuffer[300];
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
-			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSend(ColaRespuestas, &JSONmessageBuffer, 0); 
+			// Mando el comando a la cola de respuestas
+			xQueueSend(ColaRespuestas, JSONmessageBuffer, 0); 
+
+}
+
+// Funcion ante un Evento de la libreria de comunicaciones
+void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
+
+	
+	switch (Evento_Comunicaciones)
+	{
+	case Comunicaciones::EVENTO_CONECTANDO:
+	
+		Serial.print("MQTT - CONECTANDO: ");
+		Serial.println(String(Info));
+
+	break;
+	
+	case Comunicaciones::EVENTO_CONECTADO:
+
+		Serial.print("MQTT - CONECTADO: ");
+		Serial.println(String(Info));
+		ClienteNTP.update();
+		//LedEstado.Ciclo(100,100,5000,1);		// Led en ciclo conectado
+
+	break;
+
+	case Comunicaciones::EVENTO_CMND_RX:
+
+		Serial.print("MQTT - CMND_RX: ");
+		Serial.println(String(Info));
+		xQueueSend(ColaComandos, Info, 0);
+
+	break;
+
+	case Comunicaciones::EVENTO_TELE_RX:
+
+		//Serial.print("MQTT - TELE_RX: ");
+		//Serial.println(String(Info));
+		//ColaTelemetria.push(Info);
+
+	break;
+
+	case Comunicaciones::EVENTO_DESCONECTADO:
+
+		//LedEstado.Ciclo(500,500,0,1);		// Led en ciclo desconectado
+
+	break;
+
+	default:
+	break;
+
+	}
+
 
 }
 
 // envia al topic tele la telemetria en Json
 void MandaTelemetria() {
 	
-	if (ClienteMQTT.connected()){
 
-			// Telemetria 1
-			String t_topic = MiConfig.teleTopic + "/INFO1";
+	String t_topic = MiConfig.teleTopic + "/INFO1";
 
-			DynamicJsonBuffer jsonBuffer;
-			JsonObject& ObjJson = jsonBuffer.createObject();
-			ObjJson.set("TIPO","MQTT");
-			ObjJson.set("CMND","TELE");
-			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
-			
-			char JSONmessageBuffer[300];
-			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-			
-			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
-			
-			
-			// Telemetria 2 rehusando los objetos anterioires
-			t_topic = MiConfig.teleTopic + "/INFO2";
-
-			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(2));
-			
-			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
-			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-
-			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
-
-
-			// Telemetria 3 rehusando los objetos anterioires
-			t_topic = MiConfig.teleTopic + "/INFO3";
-
-			ObjJson.set("MQTTT",t_topic);
-			ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(3));
-			
-			memset(JSONmessageBuffer, 0, sizeof(JSONmessageBuffer));		// Limpiar el buffer para reusarlo
-			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-
-			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
-			
-
-	}
+	DynamicJsonBuffer jsonBuffer;
+	JsonObject& ObjJson = jsonBuffer.createObject();
+	ObjJson.set("TIPO","MQTT");
+	ObjJson.set("CMND","TELE");
+	ObjJson.set("MQTTT",t_topic);
+	ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
+	
+	char JSONmessageBuffer[300];
+	ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+	
+	// Mando el comando a la cola de respuestas
+	xQueueSend(ColaRespuestas, JSONmessageBuffer, 0); 
 	
 }
 
@@ -332,7 +232,10 @@ void TaskGestionRed ( void * parameter ) {
 
 	while(true){
 
-		if (WiFi.isConnected()){
+
+		if (WiFi.isConnected() && !MisComunicaciones.IsConnected()){
+			
+			MisComunicaciones.Conectar();
 			
 			if (!ClienteMQTT.connected()){
 
@@ -365,7 +268,7 @@ void TaskProcesaComandos ( void * parameter ){
 			// Limpiar el Buffer
 			memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-			if (xQueueReceive(ColaComandos,&JSONmessageBuffer,0) == pdTRUE ){
+			if (xQueueReceive(ColaComandos,JSONmessageBuffer,0) == pdTRUE ){
 
 				String COMANDO;
 				String PAYLOAD;
@@ -428,9 +331,11 @@ void TaskProcesaComandos ( void * parameter ){
 
 						if (MiConfig.escribeconfig()){
 
-							ClienteMQTT.setServer(MiConfig.mqttserver, 1883);
-							ClienteMQTT.setCredentials(MiConfig.mqttusuario,MiConfig.mqttpassword);
-							ClienteMQTT.setWill(MiConfig.lwtTopic.c_str(),2,true,"Offline");
+							MisComunicaciones.SetMqttServidor(MiConfig.mqttserver);
+							MisComunicaciones.SetMqttUsuario(MiConfig.mqttusuario);
+							MisComunicaciones.SetMqttPassword(MiConfig.mqttpassword);
+							MisComunicaciones.SetMqttTopic(MiConfig.mqtttopic);
+							MisComunicaciones.SetMqttClientId("SINIMPLEMENTAR");
 							WiFi.begin(MiConfig.Wssid, MiConfig.WPasswd);
 
 						}
@@ -511,6 +416,7 @@ void TaskProcesaComandos ( void * parameter ){
 				else {
 
 						Serial.println("La tarea de procesar comandos ha recibido uno que no puede deserializar.");
+						Serial.println(JSONmessageBuffer);
 						
 				}
 			
@@ -537,10 +443,10 @@ void TaskEnviaRespuestas( void * parameter ){
 		// Limpiar el Buffer
 		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-		if (xQueueReceive(ColaRespuestas,&JSONmessageBuffer,0) == pdTRUE ){
+		if (xQueueReceive(ColaRespuestas,JSONmessageBuffer,0) == pdTRUE ){
 
 				DynamicJsonBuffer jsonBuffer;
-
+				
 				JsonObject& ObjJson = jsonBuffer.parseObject(JSONmessageBuffer);
 
 				if (ObjJson.success()) {
@@ -550,16 +456,22 @@ void TaskEnviaRespuestas( void * parameter ){
 					String MQTTT = ObjJson["MQTTT"].as<String>();
 					String RESP = ObjJson["RESP"].as<String>();
 					
+					char BufferTopic[100];
+					char BufferPayload[100];
+
+					strcpy(BufferTopic, MQTTT.c_str());
+					strcpy(BufferPayload, RESP.c_str());
+
 					if (TIPO == "BOTH"){
 
-						ClienteMQTT.publish(MQTTT.c_str(), 2, false, RESP.c_str());
+						MisComunicaciones.Enviar(BufferTopic, BufferPayload);
 						Serial.println(ClienteNTP.getFormattedTime() + " " + CMND + " " + RESP);
 						
 					}
 
 					else 	if (TIPO == "MQTT"){
 
-						ClienteMQTT.publish(MQTTT.c_str(), 2, false, RESP.c_str());
+						MisComunicaciones.Enviar(BufferTopic, BufferPayload);
 																								
 					}
 					
@@ -649,7 +561,7 @@ void TaskComandosSerieRun( void * parameter ){
 				ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
 				// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-				xQueueSend(ColaComandos, &JSONmessageBuffer, 0);
+				xQueueSend(ColaComandos, JSONmessageBuffer, 0);
 				
 				// Reiniciar los buffers
 				sr_buffer[0] = '\0';
@@ -731,16 +643,16 @@ void setup() {
 	// Asignar funciones Callback
 	MiRiegaMatico.SetRespondeComandoCallback(MandaRespuesta);
 
-	// Incializar el objeto Riegamatico con sus cosas.
-	MiRiegaMatico.Begin();
-		
 	// Comunicaciones
-	ClienteMQTT = AsyncMqttClient();
 	WiFi.onEvent(WiFiEventCallBack);
 	WiFi.setHostname("RIEGAMATICO");
 	
 	// Iniciar la Wifi
 	WiFi.begin();
+
+	// Incializar el objeto Riegamatico con sus cosas.
+	MiRiegaMatico.Begin();
+	
 
 	// Iniciar el sistema de ficheros y formatear si no lo esta
 	SPIFFStatus = SPIFFS.begin(true);
@@ -753,21 +665,15 @@ void setup() {
 		if (MiConfig.leeconfig()){
 
 			// Las funciones callback de la libreria MQTT	
-			ClienteMQTT.onConnect(onMqttConnect);
-  			ClienteMQTT.onDisconnect(onMqttDisconnect);
-  			ClienteMQTT.onMessage(onMqttMessage);
-  			ClienteMQTT.onPublish(onMqttPublish);
-  			ClienteMQTT.setServer(MiConfig.mqttserver, 1883);
-			ClienteMQTT.setCleanSession(true);
-			ClienteMQTT.setClientId("RiegaMaticoMQTT");
-			ClienteMQTT.setCredentials(MiConfig.mqttusuario,MiConfig.mqttpassword);
-			ClienteMQTT.setKeepAlive(4);
-			ClienteMQTT.setWill(MiConfig.lwtTopic.c_str(),2,true,"Offline");
+			MisComunicaciones.SetEventoCallback(EventoComunicaciones);
+			MisComunicaciones.SetMqttServidor(MiConfig.mqttserver);
+			MisComunicaciones.SetMqttUsuario(MiConfig.mqttusuario);
+			MisComunicaciones.SetMqttPassword(MiConfig.mqttpassword);
+			MisComunicaciones.SetMqttClientId(MiConfig.mqtttopic);
+			MisComunicaciones.SetMqttTopic(MiConfig.mqtttopic);
 
 			// Tarea de gestion de la conexion MQTT. Lanzamos solo si conseguimos leer la configuracion
-
 			xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",3000,NULL,1,&THandleTaskGestionRed,0);
-
 	
 		}
 
@@ -798,6 +704,7 @@ void setup() {
 	// Tareas CORE1
 	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,1);
 	
+	
 	// Init Completado.
 	Serial.println("Setup Completado.");
 		
@@ -815,7 +722,8 @@ void loop() {
 	// Esto aqui de momento porque no me rula en una task y tengo que averiguar por que.
 	ArduinoOTA.handle();
 	MiRiegaMatico.RunFast();	
-			
+	MisComunicaciones.RunFast();	
+
 }
 
 #pragma endregion

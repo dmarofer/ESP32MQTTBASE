@@ -83,6 +83,7 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	pinMode(PINFLUJO, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(PINFLUJO),RiegaMatico::ISRFlujoTick,FALLING);
 
+
 	// Sensor Ambiente
 	SensorAmbiente.setup(PINAMBIENTE, DHTesp::DHT11);
 
@@ -191,6 +192,7 @@ void RiegaMatico::Regar(){
 
 		ARegar = true;
 		t_flujotick = 0;
+		t_flujotick_previo = 0;
 		t_n_parciales_count = t_n_parciales;
 
 	}
@@ -367,6 +369,7 @@ void RiegaMatico::CalculaFlujo(){
 	if (b_activa){
 
 
+
 		// Sacar la diferencia de tiempo entre la anterior medicion y la actual
 		unsigned long tiempo_diff = millis() - tflujo_agua_previo;
 				
@@ -394,11 +397,11 @@ void RiegaMatico::CalculaFlujo(){
 	else {
 
 		flujoactual = 0;
+		millis_previo = 0;
 
 	}
 
 }
-
 
 void RiegaMatico::RiegoRun(){
 
@@ -583,6 +586,7 @@ void RiegaMatico::Adormir(SleepModes modo){
 
 }
 
+// Ejecutar cada 1s
 void RiegaMatico::Run() {
 	
 	// Si hay que salvar, salvar (facil no?)
@@ -602,6 +606,7 @@ void RiegaMatico::Run() {
 	this->LeeAmbiente();
 	this->LeeTempTierra();
 	this->CalculaFlujo();
+	
 
 	// UpTime Minutos
 	t_uptime = esp_timer_get_time() / 1000000;
@@ -644,12 +649,15 @@ void RiegaMatico::Run() {
 
 }
 
+// Ejecutar en el loop o lo mas rapido posible.
 void RiegaMatico::RunFast() {
 
 	// Actualizar Led
     LedEstado.Update();
+	
 
 }
+
 
 void RiegaMatico::Begin(){
 
