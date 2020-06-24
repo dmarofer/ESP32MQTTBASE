@@ -79,8 +79,7 @@ RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 // Funcion ante un evento de la wifi
 void WiFiEventCallBack(WiFiEvent_t event) {
     
-	//Serial.printf("[WiFi-event] event: %d\n", event);
-    switch(event) {
+	switch(event) {
 				
 		case SYSTEM_EVENT_STA_START:
 			Serial.println("Conexion WiFi: Iniciando ...");
@@ -109,7 +108,7 @@ void WiFiEventCallBack(WiFiEvent_t event) {
         	break;
     	case SYSTEM_EVENT_STA_DISCONNECTED:
         	
-			//Serial.println("Conexion WiFi: Desconetado");
+			Serial.println("Conexion WiFi: Desconetado");
 
         	break;
 		default:
