@@ -42,7 +42,7 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	// Apuntar la instancia creada a sRiegaMatico (de momento para lo de la interrupcion)
 	sRiegaMatico = this;
 	
-	HardwareInfo = "RiegaMatico.ESP32.1.0";
+	HardwareInfo = "RiegaMatico.ESP32.1.2";
 	ComOK = false;
 	mificheroconfig = fich_config_RiegaMatico;
 
