@@ -139,19 +139,15 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	// JSON CON LA INFO DE RIEGOS
 	case 2:
 
-		jObj.set("TCICLO", t_ciclo_global);						// Valor duracion de cada riego parcial (en segundos)					
-		jObj.set("TPAUSA", t_espera_parciales);					// Tiempo de espera entre los parciales (segundos)
-		jObj.set("NCICLOS", t_n_parciales);						// Numero de parciales
+		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
 		jObj.set("NCICLOSREST", t_n_parciales_count);			// Total parciales que quedan del trabajo de riego
 		jObj.set("BOMBACUR", ledcRead(1));						// Valor actual PWM de la bomba
-		jObj.set("BOMBASET", fuerzabomba);						// Valor de configuracion de la fuerza de la bomba
+		jObj.set("TICKS",t_flujotick);							// Ticks del medidor de flujo
 		jObj.set("FLUJO",flujoactual);							// flujo en ml/s
 		jObj.set("LITROS",(float)t_flujotick*1000/TICKSPORLITRO);// Agua Ultimo riego en ML 
-		jObj.set("TICKS",t_flujotick);							// Ticks del medidor de flujo
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
-		jObj.set("RSTAT", ARegar);								// Estado actual del trabajo de rejar
-
+		
 		break;
 
 

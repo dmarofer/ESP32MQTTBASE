@@ -159,6 +159,7 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 
 		Serial.print("MQTT - CONECTADO: ");
 		Serial.println(String(Info));
+		MiRiegaMatico.MandaConfig();
 		ClienteNTP.update();
 		//LedEstado.Ciclo(100,100,5000,1);		// Led en ciclo conectado
 
@@ -378,6 +379,27 @@ void TaskCocinaTelemetria( void * parameter ){
 		//Serial.println(JSONmessageBuffer);
 		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
 
+		// ## Telemetria 3
+		// Limpio los Buffers
+		jsonBuffer.clear();
+		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
+		
+		// El topic destino
+		t_topic = MiConfig.teleTopic + "/INFO3";
+
+		// El JSON para la cola de envio
+		JsonObject& ObjJson3 = jsonBuffer.createObject();
+		ObjJson3.set("TIPO","MQTT");
+		ObjJson3.set("CMND","TELE");
+		ObjJson3.set("MQTTT",t_topic);
+		ObjJson3.set("RESP",MiRiegaMatico.MiEstadoJson(3));
+		
+		ObjJson3.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+		
+		// Mando el comando a la cola de respuestas
+		//Serial.println(JSONmessageBuffer);
+		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
+
 
 		if (MiRiegaMatico.EstaRegando()){
 
@@ -399,7 +421,7 @@ void TaskCocinaTelemetria( void * parameter ){
 void TaskProcesaComandos ( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
+	const TickType_t xFrequency = 250;
 	xLastWakeTime = xTaskGetTickCount ();
 
 	char JSONmessageBuffer[200];
@@ -573,7 +595,7 @@ void TaskProcesaComandos ( void * parameter ){
 void TaskTX( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
+	const TickType_t xFrequency = 250;
 	xLastWakeTime = xTaskGetTickCount ();
 	
 	char JSONmessageBuffer[300];
@@ -693,8 +715,8 @@ void setup() {
 	}
 
 	// COLAS
-	ColaCMND = xQueueCreate(5,200);
-	ColaTX = xQueueCreate(5,300);
+	ColaCMND = xQueueCreate(10,200);
+	ColaTX = xQueueCreate(10,300);
 	
 
 	// TASKS
