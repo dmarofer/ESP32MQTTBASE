@@ -37,6 +37,8 @@ private:
 	unsigned int t_flujotick_previo = 0;		// La ultima medicion de flujo correspondiente a ese tiempo
 	unsigned int flujoactual = 0;			    // Para almacenar el calculo del flujo instantaneo
 
+	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
+
 	boolean riegoerror;							// Estado de error del riego (false - sin error : true - error)
 	String horaultimoriego = "NA";				// Fecha y hora del ultimo riego
     unsigned int fuerzabomba = 240;				// PWM de la bomba
@@ -56,7 +58,7 @@ private:
 
 	void LeeTempTierra();						// Lectura de los DS18B20 del bus OneWire
 
-    // Para almacenar Alias (referencia) al objeto tipo NTPClient para poder usar en la clase el que viene del Main
+	// Para almacenar Alias (referencia) al objeto tipo NTPClient para poder usar en la clase el que viene del Main
     NTPClient &ClienteNTP;
     
     
@@ -71,8 +73,6 @@ public:
 
 	};
 
-	bool ARegar = false;						// Flag para saber si hay que regar (comando de ciclo de riego disparado)
-
 	// Constructor
 	RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP);	// Constructor. Se le pasa el nombre de fichero de config y una referencia a algunos objetos
 	~RiegaMatico() {};												    // Destructor (Destruye el objeto, o sea, lo borra de la memoria)
@@ -83,7 +83,7 @@ public:
 	int reconexioneswifi;                                           // Para contar las reconexiones que ha habido a la wifi.
 
 	// Funciones Publicas
-	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
+	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 200 chars (la libreria MQTT no puede con mas de 100)
 	
 	void Run();														// Metodo RUN de la clase ejecutado por la Task correspondiente
 	void RunFast();
@@ -95,6 +95,8 @@ public:
 	
 	void Regar();													// Metodo para iniciar un ciclo de riego
 	void Cancelar();												// Metodo para cancelar el riego en curso
+
+	bool EstaRegando();												// Para saber si estamos regando (si estamos en ciclo)
 	
 	void ConfigTiempoRiego(unsigned long tiempo_riego);				// Metodo para configurar el tiempo de riego
 	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales

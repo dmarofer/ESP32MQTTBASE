@@ -40,10 +40,10 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #pragma region Objetos
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskCocinaTelemetria,THandleTaskGestionRed,THandleTaskTX;	
 
 // Manejadores Colas para comunicaciones inter-tareas
-QueueHandle_t ColaComandos,ColaRespuestas;
+QueueHandle_t ColaCMND,ColaTX;
 
 // Timer Run
 //hw_timer_t * timer_stp = NULL;
@@ -74,7 +74,31 @@ RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 
 #pragma endregion
 
-#pragma region Funciones de Eventos y Telemetria
+#pragma region Funciones de Eventos y CallBack
+
+// Callback. Manda a la cola de TX el mensaje de respuesta desde la clase RiegaMatico
+void MandaRespuesta(String comando, String payload) {
+
+			String t_topic = MiConfig.statTopic + "/" + comando;
+
+			DynamicJsonBuffer jsonBuffer;
+			JsonObject& ObjJson = jsonBuffer.createObject();
+			// Tipo de mensaje (MQTT, SERIE, BOTH)
+			ObjJson.set("TIPO","BOTH");
+			// Comando
+			ObjJson.set("CMND",comando);
+			// Topic (para MQTT)
+			ObjJson.set("MQTTT",t_topic);
+			// RESPUESTA
+			ObjJson.set("RESP",payload);
+
+			char JSONmessageBuffer[300];
+			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+			
+			// Mando el comando a la cola de respuestas
+			xQueueSend(ColaTX, JSONmessageBuffer, 0); 
+
+}
 
 // Funcion ante un evento de la wifi
 void WiFiEventCallBack(WiFiEvent_t event) {
@@ -118,32 +142,7 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 		
 }
 
-
-// Manda a la cola de respuestas el mensaje de respuesta. Esta funcion la uso como CALLBACK para el objeto RiegaMatico
-void MandaRespuesta(String comando, String payload) {
-
-			String t_topic = MiConfig.statTopic + "/" + comando;
-
-			DynamicJsonBuffer jsonBuffer;
-			JsonObject& ObjJson = jsonBuffer.createObject();
-			// Tipo de mensaje (MQTT, SERIE, BOTH)
-			ObjJson.set("TIPO","BOTH");
-			// Comando
-			ObjJson.set("CMND",comando);
-			// Topic (para MQTT)
-			ObjJson.set("MQTTT",t_topic);
-			// RESPUESTA
-			ObjJson.set("RESP",payload);
-
-			char JSONmessageBuffer[300];
-			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-			
-			// Mando el comando a la cola de respuestas
-			xQueueSend(ColaRespuestas, JSONmessageBuffer, 0); 
-
-}
-
-// Funcion ante un Evento de la libreria de comunicaciones
+// Manejador de eventos de la clase comunicaciones
 void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 
 	
@@ -169,7 +168,7 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 
 		Serial.print("MQTT - CMND_RX: ");
 		Serial.println(String(Info));
-		xQueueSend(ColaComandos, Info, 0);
+		xQueueSend(ColaCMND, Info, 0);
 
 	break;
 
@@ -195,31 +194,9 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 
 }
 
-// envia al topic tele la telemetria en Json
-void MandaTelemetria() {
-	
-
-	String t_topic = MiConfig.teleTopic + "/INFO1";
-
-	DynamicJsonBuffer jsonBuffer;
-	JsonObject& ObjJson = jsonBuffer.createObject();
-	ObjJson.set("TIPO","MQTT");
-	ObjJson.set("CMND","TELE");
-	ObjJson.set("MQTTT",t_topic);
-	ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
-	
-	char JSONmessageBuffer[300];
-	ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-	
-	// Mando el comando a la cola de respuestas
-	xQueueSend(ColaRespuestas, JSONmessageBuffer, 0); 
-	
-}
-
 #pragma endregion
 
 #pragma region TASKS
-
 
 // Tarea para vigilar la conexion con el MQTT y conectar si no estamos conectados
 void TaskGestionRed ( void * parameter ) {
@@ -243,6 +220,181 @@ void TaskGestionRed ( void * parameter ) {
 
 }
 
+// Tarea para los comandos que llegan por el puerto serie. Los cocina y manda a la ColaCMND
+void TaskComandosSerieRun( void * parameter ){
+
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 100;
+	xLastWakeTime = xTaskGetTickCount ();
+
+	char sr_buffer[120];
+	int16_t sr_buffer_len(sr_buffer!=NULL && sizeof(sr_buffer) > 0 ? sizeof(sr_buffer) - 1 : 0);
+	int16_t sr_buffer_pos = 0;
+	char* sr_term = "\r\n";
+	char* sr_delim = " ";
+	int16_t sr_term_pos = 0;
+	char* sr_last_token;
+	char* comando = "NA";
+	char* parametro1 = "NA";
+
+	while(true){
+		
+		while (Serial.available()) {
+
+			// leer un caracter del serie (en ASCII)
+			int ch = Serial.read();
+
+			// Si es menor de 0 es KAKA
+			if (ch <= 0) {
+				
+				continue;
+			
+			}
+
+			// Si el buffer no esta lleno, escribir el caracter en el buffer y avanzar el puntero
+			if (sr_buffer_pos < sr_buffer_len){
+			
+				sr_buffer[sr_buffer_pos++] = ch;
+				//Serial.println("DEBUG: " + String(sr_buffer));
+
+			}
+		
+			// Si esta lleno ........
+			else { 
+
+				return;
+
+			}
+
+			// Aqui para detectar el retorno de linea
+			if (sr_term[sr_term_pos] != ch){
+				sr_term_pos = 0;
+				continue;
+			}
+
+			// Si hemos detectado el retorno de linea .....
+			if (sr_term[++sr_term_pos] == 0){
+
+				sr_buffer[sr_buffer_pos - strlen(sr_term)] = '\0';
+
+				// Aqui para sacar cada una de las "palabras" del comando que hemos recibido con la funcion strtok_r (curiosa funcion)
+				comando = strtok_r(sr_buffer, sr_delim, &sr_last_token);
+				parametro1 = strtok_r(NULL, sr_delim, &sr_last_token);
+
+				// Formatear el JSON del comando y mandarlo a la cola de comandos.
+				DynamicJsonBuffer jsonBuffer;
+				JsonObject& ObjJson = jsonBuffer.createObject();
+				ObjJson.set("COMANDO",comando);
+				ObjJson.set("PAYLOAD",parametro1);
+
+				char JSONmessageBuffer[200];
+				ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+			
+				// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
+				xQueueSend(ColaCMND, JSONmessageBuffer, 0);
+				
+				// Reiniciar los buffers
+				sr_buffer[0] = '\0';
+				sr_buffer_pos = 0;
+				sr_term_pos = 0;
+				
+			}
+		
+
+		}
+	
+		
+		vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+	}
+	
+}
+
+// Tarea para el metodo run del objeto Riegamatico
+void TaskRiegaMaticoRun( void * parameter ){
+
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequency = 1000;
+	xLastWakeTime = xTaskGetTickCount ();
+	
+	while(true){
+
+		MiRiegaMatico.Run();
+		
+		vTaskDelayUntil( &xLastWakeTime, xFrequency );
+
+	}
+
+}
+
+// Tarea para generar el JSON para la cola ColaTX para que mande la telemetria
+void TaskCocinaTelemetria( void * parameter ){
+
+	TickType_t xLastWakeTime;
+	const TickType_t xFrequencyLargo = 20000;
+	const TickType_t xFrequencyCorto = 2000;
+	xLastWakeTime = xTaskGetTickCount ();
+
+	while(true){
+
+		// ## Telemetria 1
+		// El topic destino
+		String t_topic = MiConfig.teleTopic + "/INFO1";
+
+		// El JSON para la cola de envio
+		DynamicJsonBuffer jsonBuffer;
+		JsonObject& ObjJson = jsonBuffer.createObject();
+		ObjJson.set("TIPO","MQTT");
+		ObjJson.set("CMND","TELE");
+		ObjJson.set("MQTTT",t_topic);
+		ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
+		
+		// Buffer para el msg de la cola de envio
+		char JSONmessageBuffer[300];
+		ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
+		// Mando el comando a la cola de respuestas
+		//Serial.println(JSONmessageBuffer);
+		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
+
+		// ## Telemetria 2
+		// Limpio los Buffers
+		jsonBuffer.clear();
+		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
+		
+		// El topic destino
+		t_topic = MiConfig.teleTopic + "/INFO2";
+
+		// El JSON para la cola de envio
+		JsonObject& ObjJson2 = jsonBuffer.createObject();
+		ObjJson2.set("TIPO","MQTT");
+		ObjJson2.set("CMND","TELE");
+		ObjJson2.set("MQTTT",t_topic);
+		ObjJson2.set("RESP",MiRiegaMatico.MiEstadoJson(2));
+		
+		ObjJson2.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+		
+		// Mando el comando a la cola de respuestas
+		//Serial.println(JSONmessageBuffer);
+		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
+
+
+		if (MiRiegaMatico.EstaRegando()){
+
+			vTaskDelayUntil( &xLastWakeTime, xFrequencyCorto );
+
+		}
+
+		else {
+
+			vTaskDelayUntil( &xLastWakeTime, xFrequencyLargo );
+			
+		}
+	
+	}
+	
+}
+
 //Tarea para procesar la cola de comandos recibidos
 void TaskProcesaComandos ( void * parameter ){
 
@@ -250,14 +402,14 @@ void TaskProcesaComandos ( void * parameter ){
 	const TickType_t xFrequency = 100;
 	xLastWakeTime = xTaskGetTickCount ();
 
-	char JSONmessageBuffer[100];
+	char JSONmessageBuffer[200];
 	
 	while (true){
 			
 			// Limpiar el Buffer
 			memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-			if (xQueueReceive(ColaComandos,JSONmessageBuffer,0) == pdTRUE ){
+			if (xQueueReceive(ColaCMND,JSONmessageBuffer,0) == pdTRUE ){
 
 				String COMANDO;
 				String PAYLOAD;
@@ -417,8 +569,8 @@ void TaskProcesaComandos ( void * parameter ){
 
 }
 
-// Tarea para procesar la cola de respuestas
-void TaskEnviaRespuestas( void * parameter ){
+// Tarea para procesar la cola de envios
+void TaskTX( void * parameter ){
 
 	TickType_t xLastWakeTime;
 	const TickType_t xFrequency = 100;
@@ -432,7 +584,7 @@ void TaskEnviaRespuestas( void * parameter ){
 		// Limpiar el Buffer
 		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-		if (xQueueReceive(ColaRespuestas,JSONmessageBuffer,0) == pdTRUE ){
+		if (xQueueReceive(ColaTX,JSONmessageBuffer,0) == pdTRUE ){
 
 				DynamicJsonBuffer jsonBuffer;
 				
@@ -445,8 +597,8 @@ void TaskEnviaRespuestas( void * parameter ){
 					String MQTTT = ObjJson["MQTTT"].as<String>();
 					String RESP = ObjJson["RESP"].as<String>();
 					
-					char BufferTopic[100];
-					char BufferPayload[100];
+					char BufferTopic[75];
+					char BufferPayload[200];
 
 					strcpy(BufferTopic, MQTTT.c_str());
 					strcpy(BufferPayload, RESP.c_str());
@@ -477,143 +629,6 @@ void TaskEnviaRespuestas( void * parameter ){
 
 	}
 
-}
-
-// Tarea para los comandos que llegan por el puerto serie
-void TaskComandosSerieRun( void * parameter ){
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
-	xLastWakeTime = xTaskGetTickCount ();
-
-	char sr_buffer[120];
-	int16_t sr_buffer_len(sr_buffer!=NULL && sizeof(sr_buffer) > 0 ? sizeof(sr_buffer) - 1 : 0);
-	int16_t sr_buffer_pos = 0;
-	char* sr_term = "\r\n";
-	char* sr_delim = " ";
-	int16_t sr_term_pos = 0;
-	char* sr_last_token;
-	char* comando = "NA";
-	char* parametro1 = "NA";
-
-	while(true){
-		
-		while (Serial.available()) {
-
-			// leer un caracter del serie (en ASCII)
-			int ch = Serial.read();
-
-			// Si es menor de 0 es KAKA
-			if (ch <= 0) {
-				
-				continue;
-			
-			}
-
-			// Si el buffer no esta lleno, escribir el caracter en el buffer y avanzar el puntero
-			if (sr_buffer_pos < sr_buffer_len){
-			
-				sr_buffer[sr_buffer_pos++] = ch;
-				//Serial.println("DEBUG: " + String(sr_buffer));
-
-			}
-		
-			// Si esta lleno ........
-			else { 
-
-				return;
-
-			}
-
-			// Aqui para detectar el retorno de linea
-			if (sr_term[sr_term_pos] != ch){
-				sr_term_pos = 0;
-				continue;
-			}
-
-			// Si hemos detectado el retorno de linea .....
-			if (sr_term[++sr_term_pos] == 0){
-
-				sr_buffer[sr_buffer_pos - strlen(sr_term)] = '\0';
-
-				// Aqui para sacar cada una de las "palabras" del comando que hemos recibido con la funcion strtok_r (curiosa funcion)
-				comando = strtok_r(sr_buffer, sr_delim, &sr_last_token);
-				parametro1 = strtok_r(NULL, sr_delim, &sr_last_token);
-
-				// Formatear el JSON del comando y mandarlo a la cola de comandos.
-				DynamicJsonBuffer jsonBuffer;
-				JsonObject& ObjJson = jsonBuffer.createObject();
-				ObjJson.set("COMANDO",comando);
-				ObjJson.set("PAYLOAD",parametro1);
-
-				char JSONmessageBuffer[100];
-				ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-			
-				// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-				xQueueSend(ColaComandos, JSONmessageBuffer, 0);
-				
-				// Reiniciar los buffers
-				sr_buffer[0] = '\0';
-				sr_buffer_pos = 0;
-				sr_term_pos = 0;
-				
-			}
-		
-
-		}
-	
-		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-	
-}
-
-// Tarea para el metodo run del objeto Riegamatico
-void TaskRiegaMaticoRun( void * parameter ){
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 1000;
-	xLastWakeTime = xTaskGetTickCount ();
-	
-	while(true){
-
-		MiRiegaMatico.Run();
-
-		// Si estamos regando mandar la telemetria cada segundo
-		if (MiRiegaMatico.ARegar){
-
-			MandaTelemetria();
-
-		}
-
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-
-}
-
-// tarea para el envio periodico de la telemetria (envio lento)
-void TaskMandaTelemetria( void * parameter ){
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 20000;
-	xLastWakeTime = xTaskGetTickCount ();
-	
-
-	while(true){
-
-		if (!MiRiegaMatico.ARegar){
-
-			MandaTelemetria();
-
-		}
-
-		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-	
 }
 
 #pragma endregion
@@ -678,16 +693,17 @@ void setup() {
 	}
 
 	// COLAS
-	ColaComandos = xQueueCreate(10,100);
-	ColaRespuestas = xQueueCreate(10,300);
+	ColaCMND = xQueueCreate(5,200);
+	ColaTX = xQueueCreate(5,300);
+	
 
 	// TASKS
 	Serial.println("Creando tareas del sistema.");
 	
 	// Tareas CORE0
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
-	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
-	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
+	xTaskCreatePinnedToCore(TaskTX,"EnviaMQTT",2000,NULL,1,&THandleTaskTX,0);
+	xTaskCreatePinnedToCore(TaskCocinaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskCocinaTelemetria,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
 	// Tareas CORE1

@@ -175,10 +175,11 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	}
 
 
-	// Crear un buffer (aray de 100 char) donde almacenar la cadena de texto del JSON
+	// Crear un buffer (aray de 200 char) donde almacenar la cadena de texto del JSON
 	char JSONmessageBuffer[200];
 
 	// Tirar al buffer la cadena de objetos serializada en JSON con la propiedad printTo del objeto de arriba
+	// Como va medida al buffer de [200] si te pasas se corta el JSON
 	jObj.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 
 	// devolver el char array con el JSON
@@ -194,13 +195,14 @@ void RiegaMatico::Regar(){
 		t_flujotick = 0;
 		t_flujotick_previo = 0;
 		t_n_parciales_count = t_n_parciales;
+		this->MiRespondeComandos("REGAR","OK");
 
 	}
 	
 	else {
 
 		riegoerror = true;
-		this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+		this->MiRespondeComandos("REGAR","ERR:NEB");
 		Serial.println("Bateria demasiado baja para regar, cancelando riego.");
 
 	}
@@ -228,7 +230,7 @@ void RiegaMatico::Cancelar(){
 
 	}
 
-	this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+	this->MiRespondeComandos("REGAR","CANCELADO");
 
 
 }
@@ -305,7 +307,7 @@ void RiegaMatico::ConfigTiempoRiego(unsigned long tiempo_riego){
 
 	t_ciclo_global = tiempo_riego;
 	HayQueSalvar = true;
-	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
+	this->MiRespondeComandos("TRIEGO",String(t_ciclo_global));
 
 }	
 
@@ -313,7 +315,7 @@ void RiegaMatico::ConfigEsperaParciales(unsigned long tiempo_espera){
 
 	t_espera_parciales = tiempo_espera;
 	HayQueSalvar = true;
-	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
+	this->MiRespondeComandos("TPAUSA",String(t_espera_parciales));
 
 }	
 
@@ -321,7 +323,7 @@ void RiegaMatico::ConfigNumParciales(int n_parciales){
 
 	t_n_parciales = n_parciales;
 	HayQueSalvar = true;
-	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
+	this->MiRespondeComandos("NPARCIALES",String(t_n_parciales));
 
 }
 
@@ -329,16 +331,17 @@ void RiegaMatico::ConfigPWMBomba(int n_fuerzabomba){
 
 	fuerzabomba = n_fuerzabomba;
 	HayQueSalvar = true;
-	this->MiRespondeComandos("BOMBASET",this->MiEstadoJson(2));
+	this->MiRespondeComandos("BOMBASET",String(fuerzabomba));
 
 }
 
 void RiegaMatico::MandaConfig(){
 
-	this->MiRespondeComandos("TRIEGO",this->MiEstadoJson(2));
-	this->MiRespondeComandos("TPAUSA",this->MiEstadoJson(2));
-	this->MiRespondeComandos("NPARCIALES",this->MiEstadoJson(2));
-	this->MiRespondeComandos("BOMBASET",this->MiEstadoJson(2));
+	this->MiRespondeComandos("TRIEGO",String(t_ciclo_global));
+	this->MiRespondeComandos("TPAUSA",String(t_espera_parciales));
+	this->MiRespondeComandos("NPARCIALES",String(t_n_parciales));
+	this->MiRespondeComandos("BOMBASET",String(fuerzabomba));
+
 }
 
 void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
@@ -420,7 +423,7 @@ void RiegaMatico::RiegoRun(){
 
 			//digitalWrite(PINLED, HIGH);
 			ledcWrite(1,fuerzabomba);
-			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+			this->MiRespondeComandos("REGAR","BOMBA: " + String(fuerzabomba));
 
 		}
 
@@ -433,13 +436,14 @@ void RiegaMatico::RiegoRun(){
 
 			//digitalWrite(PINLED, HIGH);
 			ledcWrite(1,fuerzabomba);
-			this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+			this->MiRespondeComandos("REGAR","BOMBA: " + String(fuerzabomba));
 
 		}
 
 		// Si estoy en el ultimo parcial ....
 		else if (t_n_parciales_count <= 0){
 
+			this->MiRespondeComandos("REGAR","FIN RIEGO");
 			this->Cancelar();
 
 		}
@@ -455,9 +459,15 @@ void RiegaMatico::RiegoRun(){
 
 		t_init_riego = millis(); // Empieza la pausa y voy a usar esto tambien para contar
 
-		this->MiRespondeComandos("REGAR",this->MiEstadoJson(2));
+		this->MiRespondeComandos("REGAR","FIN PARCIAL");
 
 	}
+
+}
+
+bool RiegaMatico::EstaRegando(){
+
+	return ARegar;
 
 }
 
@@ -657,7 +667,6 @@ void RiegaMatico::RunFast() {
 	
 
 }
-
 
 void RiegaMatico::Begin(){
 
