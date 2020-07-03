@@ -34,6 +34,8 @@ DallasTemperature MisTermometrosOnewire(&MiOneWireBus);
 // Array con las direcciones de cada uno de los termometros del bus Onewire
 DeviceAddress TempMaceta1, TempMaceta2;
 
+// Para parar las interrupciones.
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 
 // Constructor. Lo que sea que haya que hacer antes de devolver el objeto de esta clase al creador.
@@ -161,6 +163,16 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 
 		break;
 
+	// JSON CON LA CONFIGURACION. ES LO QUE SE SALVA EN EL FICHERO
+	case 4:
+		
+		jObj.set("TCICLO", t_ciclo_global);	
+		jObj.set("TPAUSA", t_espera_parciales);		
+		jObj.set("NCICLOS", t_n_parciales);					
+		jObj.set("BOMBASET", fuerzabomba);					
+
+		break;
+	
 
 	// SI ME LLAMAN CON OTRO PARAMETRO
 	default:
@@ -188,7 +200,11 @@ void RiegaMatico::Regar(){
 	if (t_vbateria >= VBATMINRIEGO){
 
 		ARegar = true;
+
+		portENTER_CRITICAL_ISR(&mux);
 		t_flujotick = 0;
+		portEXIT_CRITICAL_ISR(&mux);
+
 		t_flujotick_previo = 0;
 		t_n_parciales_count = t_n_parciales;
 		this->MiRespondeComandos("REGAR","OK");
@@ -241,7 +257,7 @@ boolean RiegaMatico::SalvaConfig(){
 		return false;
 	}
 
-	if (mificheroconfig_handler.print(MiEstadoJson(2))){
+	if (mificheroconfig_handler.print(MiEstadoJson(4))){
 
 		Serial.println("Config del Riegamatico Salvada.");
 		return true;
@@ -276,7 +292,7 @@ boolean RiegaMatico::LeeConfig(){
 				Serial.print("Configuracion del Riegamatico Leida: ");
 				json.printTo(Serial);
 				Serial.println("");
-
+				
 				// Dar valor a las variables desde el JSON de configuracion
 				t_ciclo_global = json.get<unsigned long>("TCICLO");
 				t_espera_parciales = json.get<unsigned long>("TPAUSA");
@@ -340,13 +356,36 @@ void RiegaMatico::MandaConfig(){
 
 }
 
-void RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
+void RiegaMatico::MandaInfoRiego(){
+
+	this->MiRespondeComandos("BOMBACUR",String(ledcRead(1)));
+	this->MiRespondeComandos("FLUJO",String(flujoactual));
+
+	if (flujoactual >= FLUJOMIN && flujoactual <= FLUJOMAX){
+
+		this->MiRespondeComandos("FLUJO-OK",String(true));
+
+	}
+
+	else {
+
+		this->MiRespondeComandos("FLUJO-OK",String(false));
+
+	}
+	
+}
+
+void IRAM_ATTR RiegaMatico::ISRFlujoTick(){			// ISR que SI le puedo pasar al AttachInterrupt (estatica) que llama a una funcion de ESTA instancia (sRiegaMatico = this)
+
+	portENTER_CRITICAL_ISR(&mux);
 
 	if (sRiegaMatico != 0){
 
 		sRiegaMatico->FujoTick();			// Y por tanto SI puedo llamar a una funcion publica no estatica (y por ende la llama la interrupcion y la puedo llamar por otro lado si gusto)
 
 	}
+
+	portEXIT_CRITICAL_ISR(&mux);
 
 }
 
@@ -618,16 +657,15 @@ void RiegaMatico::Run() {
 	t_uptime = esp_timer_get_time() / 1000000;
 
 
-    // Estados en el LED
-
-    // Si estoiy en un ciclo de riego respiracion rapida
+    // Si estoiy en un ciclo de riego
     if (ARegar == true){
 
-       LedEstado.Breathe(1000).Forever();
+       	LedEstado.Breathe(1000).Forever();
+		this->MandaInfoRiego();
 
     }
 
-    // Y si no reflejar el estado de la Wifi (de momento)
+    // Y si no. Reflejar el estado de la Wifi (de momento)
     else{
 
 		

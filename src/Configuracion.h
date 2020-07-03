@@ -8,11 +8,11 @@
 // ENTRADAS
 #define PINVBAT 35
 #define PINVCARGA 34
-#define PINFLUJO 19
+#define PINFLUJO 13
 #define ONEWIREBUS 18
 #define PINNIVEL 27
 #define PINAMBIENTE 12
-#define PINHUMEDAD 13
+//#define PINHUMEDAD 19
 #define PINLED 5
 
 // CARGA DE LA BATERIA
@@ -27,7 +27,16 @@
 
 
 // FLUJO
-#define TICKSPORLITRO 270			// Segun lo que leo podria ser esto, ya lo calibraremos a ver ....
+// Ahora que empieza a funcionar bien al cambiar al pin 13 en vez del 19 unas notas.
+// Con el ticks por litro a 270 me da un flujo de unos 440ml/sec con la bomba a 250
+// Hay que calcular un poco para afinar esto, ese numero es demasiado alto.
+// Un poco a ojo de momento. Calculo que puede echar un litro en 20 segundos, y a lo mejor es menos. Eso da un flujo de unos 50ml/sec
+// O sea 
+
+#define TICKSPORLITRO 2500
+
+#define FLUJOMIN 200                // Flujo minimo (ms / sec) "normal"
+#define FLUJOMAX 1000               // Flujo maximo (ms / sec) "normal"
 
 // LCD (I2C)
 #define I2CSDA 21

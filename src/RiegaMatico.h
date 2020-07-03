@@ -49,7 +49,7 @@ private:
 	typedef void(*RespondeComandoCallback)(String comando, String respuesta);			// Definir como ha de ser la funcion de Callback (que le tengo que pasar y que devuelve)
 	RespondeComandoCallback MiRespondeComandos = nullptr;								// Definir el objeto que va a contener la funcion que vendra de fuera AQUI en la clase.
 
-	static void ISRFlujoTick();					// ISR estatica para pasarle al attachinterrupt
+	static void IRAM_ATTR ISRFlujoTick();		// ISR estatica para pasarle al attachinterrupt
 	static RiegaMatico* sRiegaMatico;			// Una objeto para albergar puntero a la instancia del riegamatico y manipularla desde dentro desde la interrupcion
 
 	void RiegoRun();							// El algoritmo que controla el ciclo de riego y la bomba
@@ -102,7 +102,8 @@ public:
 	void ConfigEsperaParciales(unsigned long tiempo_espera);		// Metodo para configurar el tiempo de espera de los parciales
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
 	void ConfigPWMBomba(int n_fuerzabomba);							// Metodo para configurar el numero de parciales. 
-	void MandaConfig();												// Metodo para enviar el JSON de la configuracion a peticion
+	void MandaConfig();												// Metodo para enviar los parametros de configuracion a los stat
+	void MandaInfoRiego();											// Metodo para enviar la informacion del riego a los stat para el Abonamatico
 
 	void GestionCarga(boolean fuerzacarga);							// Algoritmo que gestiona la carga de la bateria. Parametro para disparar la carga (1)
 

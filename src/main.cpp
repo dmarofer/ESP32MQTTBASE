@@ -40,7 +40,7 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #pragma region Objetos
 
 // Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskCocinaTelemetria,THandleTaskGestionRed,THandleTaskTX;	
+TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskEnviaTelemetria,THandleTaskGestionRed,THandleTaskTX;	
 
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaCMND,ColaTX;
@@ -74,7 +74,7 @@ RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 
 #pragma endregion
 
-#pragma region Funciones de Eventos y CallBack
+#pragma region Funciones de Eventos, CallBack y Auxiliares
 
 // Callback. Manda a la cola de TX el mensaje de respuesta desde la clase RiegaMatico
 void MandaRespuesta(String comando, String payload) {
@@ -100,6 +100,27 @@ void MandaRespuesta(String comando, String payload) {
 
 }
 
+// Funcion para formar el JSON y enviar a la ColaTX de la telemetria tipo X. Asi para poder mandar otras cosas como las configuraciones leidas desde fichero
+void CocinaTelemetria (String TopicDestino, String JsonTelemetria){
+
+		// El JSON para la cola de envio
+		DynamicJsonBuffer jsonBuffer;
+		JsonObject& ObjJson = jsonBuffer.createObject();
+		ObjJson.set("TIPO","MQTT");
+		ObjJson.set("CMND","TELE");
+		ObjJson.set("MQTTT",TopicDestino);
+		ObjJson.set("RESP",JsonTelemetria);
+		
+		// Buffer para el msg de la cola de envio
+		char JSONmessageBuffer[300];
+		ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
+		// Mando el comando a la cola de respuestas
+		//Serial.println(JSONmessageBuffer);
+		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
+
+}
+
 // Funcion ante un evento de la wifi
 void WiFiEventCallBack(WiFiEvent_t event) {
     
@@ -108,7 +129,8 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 		case SYSTEM_EVENT_STA_START:
 			Serial.println("Conexion WiFi: Iniciando ...");
 			break;
-    	case SYSTEM_EVENT_STA_GOT_IP:
+    	
+		case SYSTEM_EVENT_STA_GOT_IP:
      	   	Serial.print("Conexion WiFi: Conetado. IP: ");
       	  	Serial.println(WiFi.localIP());
 			ArduinoOTA.begin();
@@ -116,26 +138,14 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 			ClienteNTP.begin();
 			MisComunicaciones.Conectar();
 			MiRiegaMatico.reconexioneswifi ++;
-
-			if (ClienteNTP.update()){
-
-				Serial.print("Reloj Actualizado via NTP: ");
-				Serial.println(ClienteNTP.getFormattedTime());
-				
-			}
-			else{
-
-				Serial.println("ERR: No se puede actualizar la hora via NTP");
-
-			}
-			
         	break;
+
     	case SYSTEM_EVENT_STA_DISCONNECTED:
-        	
-			Serial.println("Conexion WiFi: Desconetado");
+        	Serial.println("Conexion WiFi: Desconetado");
+	       	break;
 
-        	break;
 		default:
+			Serial.println("Evento de Wifi no contemplado");
 			break;
 
     }
@@ -160,7 +170,10 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 		Serial.print("MQTT - CONECTADO: ");
 		Serial.println(String(Info));
 		MiRiegaMatico.MandaConfig();
-		ClienteNTP.update();
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
 		//LedEstado.Ciclo(100,100,5000,1);		// Led en ciclo conectado
 
 	break;
@@ -203,18 +216,31 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
 void TaskGestionRed ( void * parameter ) {
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 10000;
+	const TickType_t xFrequency = 30000;
 	xLastWakeTime = xTaskGetTickCount ();
 
 
 	while(true){
 
-		if (WiFi.isConnected() && !MisComunicaciones.IsConnected()){
+		if (WiFi.isConnected()){
 			
-			MisComunicaciones.Conectar();
+			if ( !MisComunicaciones.IsConnected() ){
+
+				MisComunicaciones.Conectar();
+
+			}
+
+			// Esto teoricamente se ejecuta en loop y solo actualiza en el tiempo que le damos al constructor, pero con esto es suficiente
+			ClienteNTP.update();
 			
 		}
-		
+
+		else {
+
+			WiFi.reconnect();
+
+		}
+				
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 
 	}
@@ -329,78 +355,25 @@ void TaskRiegaMaticoRun( void * parameter ){
 }
 
 // Tarea para generar el JSON para la cola ColaTX para que mande la telemetria
-void TaskCocinaTelemetria( void * parameter ){
+void TaskEnviaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequencyLargo = 20000;
+	const TickType_t xFrequencyLargo = 10000;
 	const TickType_t xFrequencyCorto = 2000;
 	xLastWakeTime = xTaskGetTickCount ();
 
 	while(true){
 
-		// ## Telemetria 1
-		// El topic destino
-		String t_topic = MiConfig.teleTopic + "/INFO1";
+	
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
 
-		// El JSON para la cola de envio
-		DynamicJsonBuffer jsonBuffer;
-		JsonObject& ObjJson = jsonBuffer.createObject();
-		ObjJson.set("TIPO","MQTT");
-		ObjJson.set("CMND","TELE");
-		ObjJson.set("MQTTT",t_topic);
-		ObjJson.set("RESP",MiRiegaMatico.MiEstadoJson(1));
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
+
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
+
+		CocinaTelemetria(MiConfig.teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
+
 		
-		// Buffer para el msg de la cola de envio
-		char JSONmessageBuffer[300];
-		ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-
-		// Mando el comando a la cola de respuestas
-		//Serial.println(JSONmessageBuffer);
-		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
-
-		// ## Telemetria 2
-		// Limpio los Buffers
-		jsonBuffer.clear();
-		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
-		
-		// El topic destino
-		t_topic = MiConfig.teleTopic + "/INFO2";
-
-		// El JSON para la cola de envio
-		JsonObject& ObjJson2 = jsonBuffer.createObject();
-		ObjJson2.set("TIPO","MQTT");
-		ObjJson2.set("CMND","TELE");
-		ObjJson2.set("MQTTT",t_topic);
-		ObjJson2.set("RESP",MiRiegaMatico.MiEstadoJson(2));
-		
-		ObjJson2.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-		
-		// Mando el comando a la cola de respuestas
-		//Serial.println(JSONmessageBuffer);
-		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
-
-		// ## Telemetria 3
-		// Limpio los Buffers
-		jsonBuffer.clear();
-		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
-		
-		// El topic destino
-		t_topic = MiConfig.teleTopic + "/INFO3";
-
-		// El JSON para la cola de envio
-		JsonObject& ObjJson3 = jsonBuffer.createObject();
-		ObjJson3.set("TIPO","MQTT");
-		ObjJson3.set("CMND","TELE");
-		ObjJson3.set("MQTTT",t_topic);
-		ObjJson3.set("RESP",MiRiegaMatico.MiEstadoJson(3));
-		
-		ObjJson3.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
-		
-		// Mando el comando a la cola de respuestas
-		//Serial.println(JSONmessageBuffer);
-		xQueueSend(ColaTX, JSONmessageBuffer, 0); 
-
-
 		if (MiRiegaMatico.EstaRegando()){
 
 			vTaskDelayUntil( &xLastWakeTime, xFrequencyCorto );
@@ -523,7 +496,7 @@ void TaskProcesaComandos ( void * parameter ){
 					else if (COMANDO == "REGAR"){
 
 						MiRiegaMatico.Regar();
-
+						
 					}
 
 					else if (COMANDO == "CANCELAR"){
@@ -559,6 +532,12 @@ void TaskProcesaComandos ( void * parameter ){
 					else if (COMANDO == "CARGAR"){
 
 						MiRiegaMatico.GestionCarga(true);
+
+					}
+
+					else if (COMANDO == "REBOOT"){
+
+						ESP.restart();
 
 					}
 
@@ -606,7 +585,8 @@ void TaskTX( void * parameter ){
 		// Limpiar el Buffer
 		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-		if (xQueueReceive(ColaTX,JSONmessageBuffer,0) == pdTRUE ){
+		// Saco el mensaje de la cola si hay conexion MQTT ( si no no porque si lo primero el false ya no se ejecuta lo segundo)
+		if (MisComunicaciones.IsConnected() && xQueueReceive(ColaTX,JSONmessageBuffer,0) == pdTRUE ){
 
 				DynamicJsonBuffer jsonBuffer;
 				
@@ -716,7 +696,7 @@ void setup() {
 
 	// COLAS
 	ColaCMND = xQueueCreate(10,200);
-	ColaTX = xQueueCreate(10,300);
+	ColaTX = xQueueCreate(20,300);
 	
 
 	// TASKS
@@ -725,7 +705,7 @@ void setup() {
 	// Tareas CORE0
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
 	xTaskCreatePinnedToCore(TaskTX,"EnviaMQTT",2000,NULL,1,&THandleTaskTX,0);
-	xTaskCreatePinnedToCore(TaskCocinaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskCocinaTelemetria,0);
+	xTaskCreatePinnedToCore(TaskEnviaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskEnviaTelemetria,0);
 	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
 	
 	// Tareas CORE1
