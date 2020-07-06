@@ -153,7 +153,7 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 }
 
 // Manejador de eventos de la clase comunicaciones
-void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[100]){
+void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[200]){
 
 	
 	switch (Evento_Comunicaciones)
