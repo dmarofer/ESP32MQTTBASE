@@ -14,6 +14,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+
 // Led que se maneja con la libreria JLed (va un poco regular en ESP32, hay cosas tiempos y eso que no van bien)
 // Iniciar el led en modo Off
 auto LedEstado = JLed(PINLED).Off();
@@ -116,6 +117,8 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	DynamicJsonBuffer jBuffer;
 	JsonObject& jObj = jBuffer.createObject();
 
+	esp_reset_reason_t reset_reason = esp_reset_reason();
+
 	// Dependiendo del numero de categoria en la llamada devolver unas cosas u otras
 	switch (categoria)
 	{
@@ -123,19 +126,27 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 	// JSON CON LA INFORMACION PRINCIPAL DEL HARDWARE
 	case 1:
 
+		// Buffer para los "floats"
+		char t_float_vbat[6];
+		char t_float_vcar[6];
+
+		// Y formatearlo con 2 decimales
+		dtostrf(t_vbateria, 5, 2, t_float_vbat);
+		dtostrf(t_vcargador, 5, 2, t_float_vcar);
+		
 		// Esto llena de objetos de tipo "pareja propiedad valor"
 		jObj.set("TIME", ClienteNTP.getFormattedTime());		// HORA
 		jObj.set("UPT", t_uptime);								// Uptime en segundos
 		jObj.set("HI", HardwareInfo);							// Info del Hardware
-		jObj.set("CS", ComOK);									// Info de la conexion WIFI y MQTT
 		jObj.set("RSSI", WiFi.RSSI());							// RSSI de la señal Wifi
-		jObj.set("VBAT", t_vbateria);							// Tension de la Bateria
-		jObj.set("VCARG", t_vcargador);							// Tension del cargador
+		jObj.set("VBAT", t_float_vbat);							// Tension de la Bateria
+		jObj.set("VCARG", t_float_vcar);						// Tension del cargador
 		jObj.set("TCARG", (tstop_carga - tstart_carga)/60000);	// Tiempo de ultima carga en minutos
-		jObj.set("RESERVA", t_nivel);							// Estado del la reserva del deposito
 		jObj.set("CARG", cargando);								// Estado de la carga
         jObj.set("RECW", reconexioneswifi);						// Numero de reconexiones Wifi
-		
+		jObj.set("FH", ESP.getFreeHeap());						// Free Heap
+		jObj.set("RR", (int)reset_reason);						// Reset Reason: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system.html#_CPPv418esp_reset_reason_t
+				
 		break;
 
 	// JSON CON LA INFO DE RIEGOS
@@ -149,6 +160,7 @@ String RiegaMatico::MiEstadoJson(int categoria) {
 		jObj.set("LITROS",(float)t_flujotick*1000/TICKSPORLITRO);// Agua Ultimo riego en ML 
 		jObj.set("RIEGOERR", riegoerror);						// Estado de error del riego
 		jObj.set("ULTRIEGO",horaultimoriego);					// Fecha y hora del ultimo riego
+		jObj.set("RESERVA", t_nivel);							// Estado del la reserva del deposito
 		
 		break;
 

@@ -237,7 +237,9 @@ void TaskGestionRed ( void * parameter ) {
 
 		else {
 
-			WiFi.reconnect();
+			WiFi.disconnect();
+			WiFi.begin();
+			//WiFi.reconnect();
 
 		}
 				
