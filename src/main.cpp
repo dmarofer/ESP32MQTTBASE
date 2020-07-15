@@ -131,21 +131,25 @@ void WiFiEventCallBack(WiFiEvent_t event) {
 			break;
     	
 		case SYSTEM_EVENT_STA_GOT_IP:
-     	   	Serial.print("Conexion WiFi: Conetado. IP: ");
-      	  	Serial.println(WiFi.localIP());
+			MiRiegaMatico.reconexioneswifi ++;
+     	   	Serial.println("Conexion WiFi Conetado");
+      	  	WiFi.printDiag(Serial);
+			Serial.println("Arrancando servicios de red");
 			ArduinoOTA.begin();
-			Serial.println("Proceso OTA arrancado.");
 			ClienteNTP.begin();
 			MisComunicaciones.Conectar();
-			MiRiegaMatico.reconexioneswifi ++;
-        	break;
-
-    	case SYSTEM_EVENT_STA_DISCONNECTED:
-        	Serial.println("Conexion WiFi: Desconetado");
 	       	break;
 
+    	case SYSTEM_EVENT_STA_DISCONNECTED:
+        	Serial.println("Conexion WiFi: Desconetado. Parando servicios de red");
+			MisComunicaciones.Desonectar();
+			ArduinoOTA.end();
+			ClienteNTP.end();
+	       	break;
+
+		
 		default:
-			Serial.println("Evento de Wifi no contemplado");
+			//Serial.println("Evento de Wifi no contemplado");
 			break;
 
     }
@@ -237,9 +241,10 @@ void TaskGestionRed ( void * parameter ) {
 
 		else {
 
-			WiFi.disconnect();
-			WiFi.begin();
+			//WiFi.disconnect();
+			//WiFi.begin();
 			//WiFi.reconnect();
+
 
 		}
 				
@@ -360,8 +365,7 @@ void TaskRiegaMaticoRun( void * parameter ){
 void TaskEnviaTelemetria( void * parameter ){
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequencyLargo = 10000;
-	const TickType_t xFrequencyCorto = 2000;
+	const TickType_t xFrequency = 15000;
 	xLastWakeTime = xTaskGetTickCount ();
 
 	while(true){
@@ -375,19 +379,9 @@ void TaskEnviaTelemetria( void * parameter ){
 
 		CocinaTelemetria(MiConfig.teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
 
+		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 		
-		if (MiRiegaMatico.EstaRegando()){
-
-			vTaskDelayUntil( &xLastWakeTime, xFrequencyCorto );
-
-		}
-
-		else {
-
-			vTaskDelayUntil( &xLastWakeTime, xFrequencyLargo );
 			
-		}
-	
 	}
 	
 }
@@ -651,12 +645,6 @@ void setup() {
 	// Asignar funciones Callback
 	MiRiegaMatico.SetRespondeComandoCallback(MandaRespuesta);
 
-	// Comunicaciones
-	WiFi.onEvent(WiFiEventCallBack);
-	WiFi.setHostname("RIEGAMATICO");
-	
-	// Iniciar la Wifi
-	WiFi.begin();
 
 	// Incializar el objeto Riegamatico con sus cosas.
 	MiRiegaMatico.Begin();
@@ -681,7 +669,7 @@ void setup() {
 			MisComunicaciones.SetMqttTopic(MiConfig.mqtttopic);
 
 			// Tarea de gestion de la conexion MQTT. Lanzamos solo si conseguimos leer la configuracion
-			xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",3000,NULL,1,&THandleTaskGestionRed,0);
+			xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",8192,NULL,1,&THandleTaskGestionRed,0);
 	
 		}
 
@@ -699,21 +687,22 @@ void setup() {
 	// COLAS
 	ColaCMND = xQueueCreate(10,200);
 	ColaTX = xQueueCreate(20,300);
-	
+
+	// WIFI
+	WiFi.onEvent(WiFiEventCallBack);
+	WiFi.setSleep(false);
+	WiFi.setAutoReconnect(true);
+	WiFi.setHostname(MiConfig.mqtttopic);
+	WiFi.begin();
 
 	// TASKS
 	Serial.println("Creando tareas del sistema.");
-	
-	// Tareas CORE0
-	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
-	xTaskCreatePinnedToCore(TaskTX,"EnviaMQTT",2000,NULL,1,&THandleTaskTX,0);
-	xTaskCreatePinnedToCore(TaskEnviaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskEnviaTelemetria,0);
-	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
-	
-	// Tareas CORE1
-	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",2000,NULL,1,&THandleTaskRiegaMaticoRun,1);
-	
-	
+	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",8192,NULL,1,&THandleTaskProcesaComandos,1);
+	xTaskCreatePinnedToCore(TaskTX,"EnviaMQTT",8192,NULL,1,&THandleTaskTX,1);
+	xTaskCreatePinnedToCore(TaskEnviaTelemetria,"MandaTelemetria",8192,NULL,1,&THandleTaskEnviaTelemetria,1);
+	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",8192,NULL,1,&THandleTaskComandosSerieRun,1);
+	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",8192,NULL,1,&THandleTaskRiegaMaticoRun,1);
+		
 	// Init Completado.
 	Serial.println("Setup Completado.");
 		
@@ -732,6 +721,7 @@ void loop() {
 	ArduinoOTA.handle();
 	MiRiegaMatico.RunFast();	
 	MisComunicaciones.RunFast();	
+	//ClienteNTP.update();
 
 }
 

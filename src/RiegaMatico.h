@@ -103,8 +103,7 @@ public:
 	void ConfigNumParciales(int n_parciales);						// Metodo para configurar el numero de parciales. 
 	void ConfigPWMBomba(int n_fuerzabomba);							// Metodo para configurar el numero de parciales. 
 	void MandaConfig();												// Metodo para enviar los parametros de configuracion a los stat
-	void MandaInfoRiego();											// Metodo para enviar la informacion del riego a los stat para el Abonamatico
-
+	
 	void GestionCarga(boolean fuerzacarga);							// Algoritmo que gestiona la carga de la bateria. Parametro para disparar la carga (1)
 
 	void FujoTick();												// Funcion publica normal de la clase para el medidor de flujo	

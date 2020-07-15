@@ -10,7 +10,7 @@
 #include <esp32-hal.h>
 #include <vector>
 #include <DHTesp.h>
-#include <LiquidCrystal_I2C.h>
+//#include <LiquidCrystal_I2C.h>		// Esto esta a medias, todavia no se bien que libreria usar.
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -24,7 +24,7 @@ DHTesp SensorAmbiente;
 TempAndHumidity LecturaAmbiente;
 
 // LCD
-LiquidCrystal_I2C lcd(0x27,16,2);
+//LiquidCrystal_I2C lcd(0x27,16,2);
 
 // Bus Onewire para Temperatura Tierra DS18B20
 OneWire MiOneWireBus(ONEWIREBUS);  // (a 4.7K resistor is necessary). Bueno ya veremos se puede pufear con el pullup .....
@@ -57,7 +57,7 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	ledcAttachPin(PINBOMBA,1);
 	// Y poner a cero
 	ledcWrite(1,0);
-	
+		
 	// Salida para el rele de carga
 	pinMode(PINCARGA,OUTPUT);
 	digitalWrite(PINCARGA,LOW);
@@ -91,9 +91,9 @@ RiegaMatico::RiegaMatico(String fich_config_RiegaMatico, NTPClient& ClienteNTP) 
 	SensorAmbiente.setup(PINAMBIENTE, DHTesp::DHT11);
 
 	// LCD
-	lcd.init();
-	lcd.noBacklight();
-	lcd.off();
+	//lcd.init();
+	//lcd.noBacklight();
+	//lcd.off();
 
 	// Variables para el tiempo de carga
 	tstart_carga = millis();
@@ -236,6 +236,8 @@ void RiegaMatico::Regar(){
 void RiegaMatico::Cancelar(){
 	
 	ledcWrite(1,0);
+	this->MiRespondeComandos("BOMBACUR","0");
+	this->MiRespondeComandos("FLUJO","0");
 
 	b_activa=false;
 	ARegar = false;
@@ -365,25 +367,8 @@ void RiegaMatico::MandaConfig(){
 	this->MiRespondeComandos("TPAUSA",String(t_espera_parciales));
 	this->MiRespondeComandos("NPARCIALES",String(t_n_parciales));
 	this->MiRespondeComandos("BOMBASET",String(fuerzabomba));
-
-}
-
-void RiegaMatico::MandaInfoRiego(){
-
 	this->MiRespondeComandos("BOMBACUR",String(ledcRead(1)));
 	this->MiRespondeComandos("FLUJO",String(flujoactual));
-
-	if (flujoactual >= FLUJOMIN && flujoactual <= FLUJOMAX){
-
-		this->MiRespondeComandos("FLUJO-OK",String(true));
-
-	}
-
-	else {
-
-		this->MiRespondeComandos("FLUJO-OK",String(false));
-
-	}
 	
 }
 
@@ -428,6 +413,7 @@ void RiegaMatico::CalculaFlujo(){
 
 			// Calcular
 			flujoactual = ((t_flujotick - t_flujotick_previo)*1000*1000)/(tiempo_diff*TICKSPORLITRO);
+			this->MiRespondeComandos("FLUJO",String(flujoactual));
 		
 		}
 
@@ -470,7 +456,7 @@ void RiegaMatico::RiegoRun(){
 
 			//digitalWrite(PINLED, HIGH);
 			ledcWrite(1,fuerzabomba);
-			this->MiRespondeComandos("REGAR","BOMBA: " + String(fuerzabomba));
+			this->MiRespondeComandos("BOMBACUR",String(fuerzabomba));
 
 		}
 
@@ -483,7 +469,7 @@ void RiegaMatico::RiegoRun(){
 
 			//digitalWrite(PINLED, HIGH);
 			ledcWrite(1,fuerzabomba);
-			this->MiRespondeComandos("REGAR","BOMBA: " + String(fuerzabomba));
+			this->MiRespondeComandos("BOMBACUR",String(fuerzabomba));
 
 		}
 
@@ -501,6 +487,8 @@ void RiegaMatico::RiegoRun(){
 	if ( b_activa == true && (millis() - t_init_riego) >= t_ciclo_global*1000){
 
 		ledcWrite(1,0);
+		this->MiRespondeComandos("BOMBACUR","0");
+		this->MiRespondeComandos("FLUJO","0");
 		//digitalWrite(PINLED, LOW);
 		b_activa=false;
 
@@ -631,8 +619,8 @@ void RiegaMatico::Adormir(SleepModes modo){
 
 		case SleepModeApagado:
 
-			lcd.noBacklight();
-			lcd.off();
+			//lcd.noBacklight();
+			//lcd.off();
 			esp_sleep_enable_timer_wakeup(THIBERNADO * (unsigned long long)60000000);
 			Serial.println("Entrando en modo Deep Sleep");
 			esp_deep_sleep_start();		
@@ -657,7 +645,7 @@ void RiegaMatico::Run() {
 	// Leer el sensor de Reserva de Nivel de Agua.
 	t_nivel = digitalRead(PINNIVEL);
 
-
+	// Tareas
 	this->RiegoRun();
 	this->GestionCarga(false);
 	this->LeeAmbiente();
@@ -673,8 +661,7 @@ void RiegaMatico::Run() {
     if (ARegar == true){
 
        	LedEstado.Breathe(1000).Forever();
-		this->MandaInfoRiego();
-
+		
     }
 
     // Y si no. Reflejar el estado de la Wifi (de momento)
