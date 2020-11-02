@@ -6,18 +6,18 @@
 #include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
-#include <JLed.h>
 #include <esp32-hal.h>
 #include <vector>
 #include <DHTesp.h>
 //#include <LiquidCrystal_I2C.h>		// Esto esta a medias, todavia no se bien que libreria usar.
 #include <OneWire.h>
 #include <DallasTemperature.h>
-
+#include <IndicadorLed.h>
 
 // Led que se maneja con la libreria JLed (va un poco regular en ESP32, hay cosas tiempos y eso que no van bien)
 // Iniciar el led en modo Off
-auto LedEstado = JLed(PINLED).Off();
+
+IndicadorLed MiLed(PINLED,false);
 
 // Para el DHT11 o 22 de ambiente
 DHTesp SensorAmbiente;
@@ -660,7 +660,7 @@ void RiegaMatico::Run() {
     // Si estoiy en un ciclo de riego
     if (ARegar == true){
 
-       	LedEstado.Breathe(1000).Forever();
+       	MiLed.Pulsos(50,100, t_n_parciales_count);
 		
     }
 
@@ -672,15 +672,15 @@ void RiegaMatico::Run() {
 
         case WL_CONNECTED:
             //LedEstado.Breathe(5000).Forever();
-			LedEstado.Blink(200,4000).Forever();
+			MiLed.Ciclo(500,500,5000,1);
             break;
 
         case WL_IDLE_STATUS:
-            LedEstado.Blink(2000,2000).Forever();
+            MiLed.Ciclo(2000,1000,5000,1);
             break;    
         
         default:
-            LedEstado.Blink(200,200).Forever();
+            MiLed.Ciclo(200,500,5000,3);
             break;
 
         }
@@ -696,7 +696,7 @@ void RiegaMatico::Run() {
 void RiegaMatico::RunFast() {
 
 	// Actualizar Led
-    LedEstado.Update();
+    MiLed.RunFast();
 	
 
 }
