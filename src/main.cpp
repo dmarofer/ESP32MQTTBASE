@@ -23,9 +23,8 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #pragma endregion
 
 #pragma region INCLUDES
-// Librerias comantadas en proceso de sustitucion por la WiFiMQTTManager
 
-#include <ConfigCom.h>					// La configuracion de las comunicaciones
+//#include <ConfigCom.h>					// La configuracion de las comunicaciones
 #include <RiegaMatico.h>				// La clase RiegaMatico
 #include <FS.h>							// Libreria Sistema de Ficheros
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
@@ -34,6 +33,7 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
 #include <Comunicaciones.h>
+#include <IotWebConf.h>					// Para el portal web de configuracion
 
 #pragma endregion
 
@@ -45,12 +45,46 @@ TaskHandle_t THandleTaskRiegaMaticoRun,THandleTaskProcesaComandos,THandleTaskCom
 // Manejadores Colas para comunicaciones inter-tareas
 QueueHandle_t ColaCMND,ColaTX;
 
-// Timer Run
-//hw_timer_t * timer_stp = NULL;
-//portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+// Para el IotWebConf
+const char thingName[] = "RIEGAMATICO";
+const char wifiInitialApPassword[] = "12345678";
 
-// Flag para el estado del sistema de ficheros
-boolean SPIFFStatus = false;
+// Para la id de config de este proyecto
+#define CONFIG_VERSION "RGMTEST"
+//#define CONFIG_PIN D2
+#define STATUS_PIN LED_BUILTIN
+// Definicion de las funciones callback
+void wifiConnected();
+void configSaved();
+boolean formValidator();
+// Objetos para el AP
+DNSServer dnsServer;
+WebServer server(80);
+HTTPUpdateServer httpUpdater;
+
+// Buffers para los parametros que vienen de web y/o de la EEPROM
+#define STRING_LEN 128
+#define NUMBER_LEN 32
+char MqttServerValue[STRING_LEN];
+char MqttUsuarioValue[STRING_LEN];
+char MqttPasswordValue[STRING_LEN];
+char MqttTopicValue[STRING_LEN];
+
+// Objeto iotwebconfig
+IotWebConf iotWebConf(thingName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
+
+// Parametros custom
+IotWebConfSeparator separator1 = IotWebConfSeparator("Configuracion MQTT");
+IotWebConfParameter MqttServer = IotWebConfParameter("Servidor", "MqttServer", MqttServerValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttUsuario = IotWebConfParameter("Usuario", "MqttUsuario", MqttUsuarioValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttPassword = IotWebConfParameter("Contraseña", "MqttPassword", MqttPasswordValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttTopic = IotWebConfParameter("Topic Base", "MqttTopic", MqttTopicValue, STRING_LEN, "text", NULL, "RIEGAMATICOTEST");
+
+// Para los topics MQTT
+String cmndTopic;
+String statTopic;
+String teleTopic;
+String lwtTopic;
 
 // Conexion UDP para la hora
 WiFiUDP UdpNtp;
@@ -61,9 +95,6 @@ static NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 60
 
 // Para el sensor de temperatura de la CPU. Definir aqui asi necesario es por no estar en core Arduino.
 extern "C" {uint8_t temprature_sens_read();}
-
-// Objeto de la configuracion en fichero
-ConfigCom MiConfig(FICHERO_CONFIG_COM);
 
 // Para las Comunicaciones
 Comunicaciones MisComunicaciones = Comunicaciones();
@@ -79,7 +110,7 @@ RiegaMatico MiRiegaMatico(FICHERO_CONFIG_PRJ, ClienteNTP);
 // Callback. Manda a la cola de TX el mensaje de respuesta desde la clase RiegaMatico
 void MandaRespuesta(String comando, String payload) {
 
-			String t_topic = MiConfig.statTopic + "/" + comando;
+			String t_topic = statTopic + "/" + comando;
 
 			DynamicJsonBuffer jsonBuffer;
 			JsonObject& ObjJson = jsonBuffer.createObject();
@@ -121,41 +152,6 @@ void CocinaTelemetria (String TopicDestino, String JsonTelemetria){
 
 }
 
-// Funcion ante un evento de la wifi
-void WiFiEventCallBack(WiFiEvent_t event) {
-    
-	switch(event) {
-				
-		case SYSTEM_EVENT_STA_START:
-			Serial.println("Conexion WiFi: Iniciando ...");
-			break;
-    	
-		case SYSTEM_EVENT_STA_GOT_IP:
-			MiRiegaMatico.reconexioneswifi ++;
-     	   	Serial.println("Conexion WiFi Conetado");
-      	  	WiFi.printDiag(Serial);
-			Serial.println("Arrancando servicios de red");
-			ArduinoOTA.begin();
-			ClienteNTP.begin();
-			MisComunicaciones.Conectar();
-	       	break;
-
-    	case SYSTEM_EVENT_STA_DISCONNECTED:
-        	Serial.println("Conexion WiFi: Desconetado. Parando servicios de red");
-			MisComunicaciones.Desonectar();
-			ArduinoOTA.end();
-			ClienteNTP.end();
-	       	break;
-
-		
-		default:
-			//Serial.println("Evento de Wifi no contemplado");
-			break;
-
-    }
-		
-}
-
 // Manejador de eventos de la clase comunicaciones
 void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[200]){
 
@@ -174,10 +170,10 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[200]){
 		Serial.print("MQTT - CONECTADO: ");
 		Serial.println(String(Info));
 		MiRiegaMatico.MandaConfig();
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
+		CocinaTelemetria(teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
+		CocinaTelemetria(teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
+		CocinaTelemetria(teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
+		CocinaTelemetria(teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
 		//LedEstado.Ciclo(100,100,5000,1);		// Led en ciclo conectado
 
 	break;
@@ -212,6 +208,47 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[200]){
 
 }
 
+// Funciones callback del iotWebConf
+void handleRoot(){
+
+  // -- Let IotWebConf test and handle captive portal requests.
+  if (iotWebConf.handleCaptivePortal()){
+    // -- Captive portal request were already served.
+    return;
+  }
+
+  String s = "<!DOCTYPE html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>";
+  s += "<title>RIEGAMATICO MQTT</title></head><body>Riegamatico MQTT - Diego Maroto - BilbaoMakers 2020";
+  s += "<ul>";
+  s += "<li>TOPICBASE: ";
+  s += MqttTopicValue;
+  s += "</ul>";
+  s += "Acceder a la <a href='config'>pagina de configuracion</a> para cambiar los valores";
+  s += "</body></html>\n";
+
+  server.send(200, "text/html", s);
+}
+
+void wifiConnected(){
+
+  Serial.println("Evento Conectado a la Wifi");
+
+}
+
+void configSaved(){
+
+  Serial.println("Configuracion recibida via web.");
+  
+}
+
+boolean formValidator(){
+  
+  Serial.println("Validando configuracion web");
+  
+  return true;
+
+}
+
 #pragma endregion
 
 #pragma region TASKS
@@ -220,13 +257,13 @@ void EventoComunicaciones (unsigned int Evento_Comunicaciones, char Info[200]){
 void TaskGestionRed ( void * parameter ) {
 
 	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 30000;
+	const TickType_t xFrequency = 5000;
 	xLastWakeTime = xTaskGetTickCount ();
 
 
 	while(true){
 
-		if (WiFi.isConnected()){
+		if (iotWebConf.getState() == IOTWEBCONF_STATE_ONLINE){
 			
 			if ( !MisComunicaciones.IsConnected() ){
 
@@ -237,15 +274,6 @@ void TaskGestionRed ( void * parameter ) {
 			// Esto teoricamente se ejecuta en loop y solo actualiza en el tiempo que le damos al constructor, pero con esto es suficiente
 			ClienteNTP.update();
 			
-		}
-
-		else {
-
-			//WiFi.disconnect();
-			//WiFi.begin();
-			//WiFi.reconnect();
-
-
 		}
 				
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
@@ -371,13 +399,13 @@ void TaskEnviaTelemetria( void * parameter ){
 	while(true){
 
 	
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
+		CocinaTelemetria(teleTopic + "/INFO1", MiRiegaMatico.MiEstadoJson(1));
 
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
+		CocinaTelemetria(teleTopic + "/INFO2", MiRiegaMatico.MiEstadoJson(2));
 
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
+		CocinaTelemetria(teleTopic + "/INFO3", MiRiegaMatico.MiEstadoJson(3));
 
-		CocinaTelemetria(MiConfig.teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
+		CocinaTelemetria(teleTopic + "/INFO4", MiRiegaMatico.MiEstadoJson(4));
 
 		vTaskDelayUntil( &xLastWakeTime, xFrequency );
 		
@@ -412,11 +440,14 @@ void TaskProcesaComandos ( void * parameter ){
 				
 					COMANDO = ObjJson["COMANDO"].as<String>();
 					PAYLOAD = ObjJson["PAYLOAD"].as<String>();
+
+					
 					
 					// De aqui para abajo la retaila de comandos que queramos y lo qude han de hacer.
 
 					// ##### COMANDOS PARA LA GESTION DE LA CONFIGURACION
-
+					
+					/*
 					if (COMANDO == "WSsid"){
 						
 						String(PAYLOAD).toCharArray(MiConfig.Wssid, sizeof(MiConfig.Wssid));
@@ -430,55 +461,47 @@ void TaskProcesaComandos ( void * parameter ){
 						Serial.println("Wpasswd OK: " + PAYLOAD);
 						
 					}
+					*/
 
-					else if (COMANDO == "MQTTSrv"){
+					if (COMANDO == "MQTTSrv"){
 
-						String(PAYLOAD).toCharArray(MiConfig.mqttserver, sizeof(MiConfig.mqttserver));
+						String(PAYLOAD).toCharArray(MqttServerValue, sizeof(MqttServerValue));
 						Serial.println("MQTTSrv OK: " + PAYLOAD);
 
 					}
 
 					else if (COMANDO == "MQTTUser"){
 
-						String(PAYLOAD).toCharArray(MiConfig.mqttusuario, sizeof(MiConfig.mqttusuario));
+						String(PAYLOAD).toCharArray(MqttUsuarioValue, sizeof(MqttUsuarioValue));
 						Serial.println("MQTTUser OK: " + PAYLOAD);
 
 					}
 
 					else if (COMANDO == "MQTTPasswd"){
 
-						String(PAYLOAD).toCharArray(MiConfig.mqttpassword, sizeof(MiConfig.mqttpassword));
+						String(PAYLOAD).toCharArray(MqttPasswordValue, sizeof(MqttPasswordValue));
 						Serial.println("MQTTPasswd OK: " + PAYLOAD);
 
 					}
 
 					else if (COMANDO == "MQTTTopic"){
 
-						String(PAYLOAD).toCharArray(MiConfig.mqtttopic, sizeof(MiConfig.mqtttopic));
+						String(PAYLOAD).toCharArray(MqttTopicValue, sizeof(MqttTopicValue));
 						Serial.println("MQTTTopic OK: " + PAYLOAD);
 
 					}
-
+					
 					else if (COMANDO == "SaveCom"){
 
-						if (MiConfig.escribeconfig()){
+						iotWebConf.configSave();
 
-							MisComunicaciones.SetMqttServidor(MiConfig.mqttserver);
-							MisComunicaciones.SetMqttUsuario(MiConfig.mqttusuario);
-							MisComunicaciones.SetMqttPassword(MiConfig.mqttpassword);
-							MisComunicaciones.SetMqttTopic(MiConfig.mqtttopic);
-							MisComunicaciones.SetMqttClientId("SINIMPLEMENTAR");
-							WiFi.begin(MiConfig.Wssid, MiConfig.WPasswd);
-
-						}
-						
 					}
 
 					else if (COMANDO == "Help"){
 
 						Serial.println("Comandos para la configuracion de las comunicaciones:");
-						Serial.println("WSsid <SSID> - Configurar SSID de la Wifi");
-						Serial.println("WPasswd <Contraseña> - Configurar contraseña de la Wifi ");
+						//Serial.println("WSsid <SSID> - Configurar SSID de la Wifi");
+						//Serial.println("WPasswd <Contraseña> - Configurar contraseña de la Wifi ");
 						Serial.println("MQTTSrv <IP|URL> - Direccion del Broker MQTT");
 						Serial.println("MQTTUser <usuario> - Usuario para el Broker MQTT");
 						Serial.println("MQTTPasswd <contraseña> - Contraseña para el usuario del Broker MQTT");
@@ -537,12 +560,11 @@ void TaskProcesaComandos ( void * parameter ){
 
 					}
 
-
 					// Y Ya si no es de ninguno de estos ....
 
 					else {
 
-						Serial.println("Me ha llegado un comando que no entiendo");
+						Serial.println("Me ha llegado un comando que no entiendo. Para ayuda comando Help.");
 						Serial.println("Comando: " + COMANDO);
 						Serial.println("Payload: " + PAYLOAD);
 
@@ -645,58 +667,68 @@ void setup() {
 	// Asignar funciones Callback
 	MiRiegaMatico.SetRespondeComandoCallback(MandaRespuesta);
 
-
 	// Incializar el objeto Riegamatico con sus cosas.
 	MiRiegaMatico.Begin();
+
+	// Callback de la libreria de comunicaciones
+	MisComunicaciones.SetEventoCallback(EventoComunicaciones);
+
+	// iotWebConf
+	iotWebConf.setStatusPin(STATUS_PIN);
+  	  		
+	iotWebConf.addParameter(&separator1);
+	iotWebConf.addParameter(&MqttServer);
+	iotWebConf.addParameter(&MqttUsuario);
+	iotWebConf.addParameter(&MqttPassword);
+	iotWebConf.addParameter(&MqttTopic);
+
+  	iotWebConf.setConfigSavedCallback(&configSaved);
+  	iotWebConf.setFormValidator(&formValidator);
+  	iotWebConf.setWifiConnectionCallback(&wifiConnected);
+	iotWebConf.getApTimeoutParameter()->visible = true;
+	iotWebConf.setupUpdateServer(&httpUpdater);
 	
-
-	// Iniciar el sistema de ficheros y formatear si no lo esta
-	SPIFFStatus = SPIFFS.begin(true);
-
-	if (SPIFFS.begin()){
-
-		Serial.println("Sistema de ficheros montado");
-
-		// Leer la configuracion de Comunicaciones
-		if (MiConfig.leeconfig()){
-
-			// Las funciones callback de la libreria MQTT	
-			MisComunicaciones.SetEventoCallback(EventoComunicaciones);
-			MisComunicaciones.SetMqttServidor(MiConfig.mqttserver);
-			MisComunicaciones.SetMqttUsuario(MiConfig.mqttusuario);
-			MisComunicaciones.SetMqttPassword(MiConfig.mqttpassword);
-			MisComunicaciones.SetMqttClientId(MiConfig.mqtttopic);
-			MisComunicaciones.SetMqttTopic(MiConfig.mqtttopic);
-
-			// Tarea de gestion de la conexion MQTT. Lanzamos solo si conseguimos leer la configuracion
-			xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",8192,NULL,1,&THandleTaskGestionRed,0);
+	iotWebConf.skipApStartup();
 	
-		}
-
-		// Leer configuracion salvada del Objeto MiRiegaMatico
-		MiRiegaMatico.LeeConfig();
-
+	Serial.println("Arrancando Portal Web de Configuracion");
+  	
+	boolean validConfig = iotWebConf.init();
+  	if (!validConfig){
+    
+		//stringParamValue[0] = '\0';
+		Serial.println("ATENCION: No es posible cargar la configuracion.");
+  	
 	}
 
-	else {
+	else{
 
-		SPIFFS.begin(true);
+		cmndTopic = "cmnd/" + String(MqttTopicValue) + "/#";
+		statTopic = "stat/" + String(MqttTopicValue);
+		teleTopic = "tele/" + String(MqttTopicValue);
+		lwtTopic = teleTopic + "/LWT";
+
+		MisComunicaciones.SetMqttServidor(MqttServerValue);
+		MisComunicaciones.SetMqttUsuario(MqttUsuarioValue);
+		MisComunicaciones.SetMqttPassword(MqttPasswordValue);
+		MisComunicaciones.SetMqttClientId(MqttTopicValue);
+		MisComunicaciones.SetMqttTopic(MqttTopicValue);
+
+		// Tarea de gestion de la conexion MQTT. Lanzamos solo si conseguimos leer la configuracion
+		xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",8192,NULL,1,&THandleTaskGestionRed,0);
 
 	}
+	
+  	// Pasar al servidor web los manejadores de paginas
+  	server.on("/", handleRoot);
+  	server.on("/config", []{ iotWebConf.handleConfig(); });
+  	server.onNotFound([](){ iotWebConf.handleNotFound(); });
 
 	// COLAS
 	ColaCMND = xQueueCreate(10,200);
 	ColaTX = xQueueCreate(20,300);
-
-	// WIFI
-	WiFi.onEvent(WiFiEventCallBack);
-	WiFi.setSleep(false);
-	WiFi.setAutoReconnect(true);
-	WiFi.setHostname(MiConfig.mqtttopic);
-	WiFi.begin();
-
+	
 	// TASKS
-	Serial.println("Creando tareas del sistema.");
+	Serial.println("Portal Web OK. Creando tareas del sistema.");
 	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",8192,NULL,1,&THandleTaskProcesaComandos,1);
 	xTaskCreatePinnedToCore(TaskTX,"EnviaMQTT",8192,NULL,1,&THandleTaskTX,1);
 	xTaskCreatePinnedToCore(TaskEnviaTelemetria,"MandaTelemetria",8192,NULL,1,&THandleTaskEnviaTelemetria,1);
@@ -704,7 +736,7 @@ void setup() {
 	xTaskCreatePinnedToCore(TaskRiegaMaticoRun,"RiegaMaticoRun",8192,NULL,1,&THandleTaskRiegaMaticoRun,1);
 		
 	// Init Completado.
-	Serial.println("Setup Completado.");
+	Serial.println("** Setup Completado. Sistema iniciado **");
 		
 }
 
@@ -714,15 +746,15 @@ void setup() {
 
 // Funcion LOOP de Arduino
 // Se ejecuta en el Core 1
-// Como todo se getiona por Task aqui no se pone NADA
+
 void loop() {
 
 	// Esto aqui de momento porque no me rula en una task y tengo que averiguar por que.
+	iotWebConf.doLoop();
 	ArduinoOTA.handle();
 	MiRiegaMatico.RunFast();	
 	MisComunicaciones.RunFast();	
-	//ClienteNTP.update();
-
+	
 }
 
 #pragma endregion
