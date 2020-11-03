@@ -45,8 +45,5 @@
 // Hola local con respecto a UTC
 #define HORA_LOCAL 2
 
-// Para el nombre del fichero de configuracion de comunicaciones
-#define FICHERO_CONFIG_COM "/RiegaMaticoCom.json"
-
 // Para el nombre del fichero de configuracion del proyecto
 #define FICHERO_CONFIG_PRJ "/RiegaMaticoCfg.json"
