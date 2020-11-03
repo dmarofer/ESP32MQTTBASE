@@ -9,15 +9,8 @@
 #include <esp32-hal.h>
 #include <vector>
 #include <DHTesp.h>
-//#include <LiquidCrystal_I2C.h>		// Esto esta a medias, todavia no se bien que libreria usar.
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <IndicadorLed.h>
-
-// Led que se maneja con la libreria JLed (va un poco regular en ESP32, hay cosas tiempos y eso que no van bien)
-// Iniciar el led en modo Off
-
-IndicadorLed MiLed(PINLED,false);
 
 // Para el DHT11 o 22 de ambiente
 DHTesp SensorAmbiente;
@@ -655,50 +648,14 @@ void RiegaMatico::Run() {
 
 	// UpTime Minutos
 	t_uptime = esp_timer_get_time() / 1000000;
-
-
-    // Si estoiy en un ciclo de riego
-    if (ARegar == true){
-
-       	MiLed.Pulsos(50,100, t_n_parciales_count);
-		
-    }
-
-    // Y si no. Reflejar el estado de la Wifi (de momento)
-    else{
-
-		
-        switch (WiFi.status()){
-
-        case WL_CONNECTED:
-            //LedEstado.Breathe(5000).Forever();
-			MiLed.Ciclo(500,500,5000,1);
-            break;
-
-        case WL_IDLE_STATUS:
-            MiLed.Ciclo(2000,1000,5000,1);
-            break;    
-        
-        default:
-            MiLed.Ciclo(200,500,5000,3);
-            break;
-
-        }
-		
-
-    }
-    
-    
+ 
 
 }
 
 // Ejecutar en el loop o lo mas rapido posible.
 void RiegaMatico::RunFast() {
 
-	// Actualizar Led
-    MiLed.RunFast();
 	
-
 }
 
 void RiegaMatico::Begin(){

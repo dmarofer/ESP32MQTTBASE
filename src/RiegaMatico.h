@@ -4,7 +4,6 @@
 #include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
 #include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
-#include <LiquidCrystal_I2C.h>
 
 class RiegaMatico {
 

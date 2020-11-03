@@ -52,7 +52,7 @@ const char wifiInitialApPassword[] = "12345678";
 // Para la id de config de este proyecto
 #define CONFIG_VERSION "RGMTEST"
 //#define CONFIG_PIN D2
-#define STATUS_PIN LED_BUILTIN
+#define STATUS_PIN PINLED
 // Definicion de las funciones callback
 void wifiConnected();
 void configSaved();
@@ -73,11 +73,46 @@ char MqttTopicValue[STRING_LEN];
 // Objeto iotwebconfig
 IotWebConf iotWebConf(thingName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
 
+// Para meter una cabecera Javascript
+const char CUSTOMHTML_SCRIPT_INNER[] PROGMEM = "\n\
+document.addEventListener('DOMContentLoaded', function(event) {\n\
+  let elements = document.querySelectorAll('input[type=\"password\"]');\n\
+  for (let p of elements) {\n\
+  	let btn = document.createElement('INPUT'); btn.type = 'button'; btn.value = '🔓'; btn.style.width = 'auto'; p.style.width = '83%'; p.parentNode.insertBefore(btn,p.nextSibling);\n\
+    btn.onclick = function() { if (p.type === 'password') { p.type = 'text'; btn.value = '🔒'; } else { p.type = 'password'; btn.value = '🔓'; } }\n\
+  };\n\
+});\n";
+// -- HTML element will be added inside the body element.
+const char CUSTOMHTML_BODY_INNER[] PROGMEM = "<div><img src='data:image/png;base64,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'/></div>\n";
+
+// -- This is an OOP technique to override behaviour of the existing
+// IotWebConfHtmlFormatProvider. Here two method are overriden from
+// the original class. See IotWebConf.h for all potentially overridable
+// methods of IotWebConfHtmlFormatProvider .
+class CustomHtmlFormatProvider : public IotWebConfHtmlFormatProvider
+{
+protected:
+  String getScriptInner() override
+  {
+    return
+      IotWebConfHtmlFormatProvider::getScriptInner() +
+      String(FPSTR(CUSTOMHTML_SCRIPT_INNER));
+  }
+  String getBodyInner() override
+  {
+    return
+      String(FPSTR(CUSTOMHTML_BODY_INNER)) +
+      IotWebConfHtmlFormatProvider::getBodyInner();
+  }
+};
+// -- An instance must be created from the class defined above.
+CustomHtmlFormatProvider customHtmlFormatProvider;
+
 // Parametros custom
 IotWebConfSeparator separator1 = IotWebConfSeparator("Configuracion MQTT");
-IotWebConfParameter MqttServer = IotWebConfParameter("Servidor", "MqttServer", MqttServerValue, STRING_LEN, "text", NULL, "");
-IotWebConfParameter MqttUsuario = IotWebConfParameter("Usuario", "MqttUsuario", MqttUsuarioValue, STRING_LEN, "text", NULL, "");
-IotWebConfParameter MqttPassword = IotWebConfParameter("Contraseña", "MqttPassword", MqttPasswordValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttServer = IotWebConfParameter("Servidor MQTT", "MqttServer", MqttServerValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttUsuario = IotWebConfParameter("Usuario MQTT", "MqttUsuario", MqttUsuarioValue, STRING_LEN, "text", NULL, "");
+IotWebConfParameter MqttPassword = IotWebConfParameter("Contraseña MQTT", "MqttPassword", MqttPasswordValue, STRING_LEN, "password", NULL, "");
 IotWebConfParameter MqttTopic = IotWebConfParameter("Topic Base", "MqttTopic", MqttTopicValue, STRING_LEN, "text", NULL, "RIEGAMATICOTEST");
 
 // Para los topics MQTT
@@ -218,10 +253,16 @@ void handleRoot(){
   }
 
   String s = "<!DOCTYPE html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>";
-  s += "<title>RIEGAMATICO MQTT</title></head><body>Riegamatico MQTT - Diego Maroto - BilbaoMakers 2020";
+  s += "<title>RIEGAMATICO MQTT</title></head><body>";
+  s += CUSTOMHTML_BODY_INNER;
+  s += "Riegamatico MQTT - Diego Maroto - BilbaoMakers 2020";
   s += "<ul>";
+  s += "<li>WIFI: ";
+  s += WiFi.SSID();
   s += "<li>TOPICBASE: ";
   s += MqttTopicValue;
+  s += "<li>CONEXION OK: ";
+  s += MisComunicaciones.IsConnected();
   s += "</ul>";
   s += "Acceder a la <a href='config'>pagina de configuracion</a> para cambiar los valores";
   s += "</body></html>\n";
@@ -685,13 +726,16 @@ void setup() {
   	iotWebConf.setConfigSavedCallback(&configSaved);
   	iotWebConf.setFormValidator(&formValidator);
   	iotWebConf.setWifiConnectionCallback(&wifiConnected);
-	iotWebConf.getApTimeoutParameter()->visible = true;
+	iotWebConf.getApTimeoutParameter()->visible = false;
 	iotWebConf.setupUpdateServer(&httpUpdater);
 	
 	iotWebConf.skipApStartup();
 	
 	Serial.println("Arrancando Portal Web de Configuracion");
   	
+	// Para la cabecera Javascript
+	iotWebConf.setHtmlFormatProvider(&customHtmlFormatProvider);
+
 	boolean validConfig = iotWebConf.init();
   	if (!validConfig){
     
